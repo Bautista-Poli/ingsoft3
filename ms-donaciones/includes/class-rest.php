@@ -83,6 +83,7 @@ class MS_Donaciones_REST {
             ],
             'statement_descriptor' => sanitize_text_field($settings['mp_statement_descriptor'] ?? 'MODULO SANITARIO'),
             'external_reference'   => $external_reference,
+            'notification_url'     => esc_url_raw($settings['mp_webhook_url'] ?? ''),
             'metadata'             => [
                 'donor_nombre'   => $nombre,
                 'donor_apellido' => $apellido,
@@ -181,10 +182,15 @@ class MS_Donaciones_REST {
     private static function handle_approved_payment($settings, $payment, $external_reference) {
         $payment_id = sanitize_text_field((string) ($payment['id'] ?? ''));
 
-        // Idempotency: skip if already processed
-        $processed_key = 'ms_don_sf_done_' . $payment_id;
-        if (get_transient($processed_key)) {
-            error_log('MS Donaciones - Payment ' . $payment_id . ' already sent to SF, skipping.');
+        // Idempotency: use atomic INSERT IGNORE to block concurrent webhooks.
+        global $wpdb;
+        $lock_option = 'ms_don_lock_' . $payment_id;
+        $inserted = $wpdb->query( $wpdb->prepare(
+            "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, %s)",
+            $lock_option, '1', 'no'
+        ) );
+        if ( ! $inserted ) {
+            error_log( 'MS Donaciones - Payment ' . $payment_id . ' already processing, skipping.' );
             return;
         }
 
@@ -223,8 +229,6 @@ class MS_Donaciones_REST {
         $account_id = $contact_id ? self::sf_get_account_id($auth, $contact_id) : null;
 
         self::sf_create_opportunity($auth, $settings, $payment, $donor_data, $contact_id, $account_id, $amount);
-
-        set_transient($processed_key, 1, 30 * DAY_IN_SECONDS);
     }
 
     public static function guardar_cliente($request) {
@@ -514,7 +518,7 @@ class MS_Donaciones_REST {
         ];
 
         if ($contact_id) {
-            $opp_fields['npsp__Primary_Contact__c'] = $contact_id;
+            $opp_fields['ContactId'] = $contact_id;
         }
 
         if ($account_id) {

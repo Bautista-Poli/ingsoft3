@@ -104,6 +104,7 @@ class MS_Donaciones_Shortcodes {
             'mp_success_url' => 'https://modulosanitario.org/gracias',
             'mp_failure_url' => 'https://modulosanitario.org/donar',
             'mp_pending_url' => 'https://modulosanitario.org/gracias',
+            'mp_webhook_url' => '',
             'foto_url' => 'https://modulosanitario.org/wp-content/uploads/2025/08/banos-portadad-_0003_IMG-20250209-WA0023-1-768x768.jpg',
             'hero_caption' => 'Familia Pereyra · Florencio Varela · 2025',
             'site_back_url' => '/inicio',

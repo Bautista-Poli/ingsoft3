@@ -332,6 +332,7 @@ class MS_Donaciones_Admin {
                 'description' => 'Configuracion server-side para crear preferencias de Checkout Pro.',
                 'fields' => [
                     'mp_access_token' => ['Access Token', 'password', 'Puede ser TEST-... para pruebas o APP_USR-... para produccion. No se expone en el navegador.'],
+                    'mp_webhook_url'  => ['URL de Webhook', 'url', 'URL publica para notificaciones de pago. En produccion: https://tu-sitio.com/wp-json/donacion/v1/webhook. En dev: URL de ngrok.'],
                     'mp_item_title' => ['Título del item'],
                     'mp_statement_descriptor' => ['Descriptor en resumen'],
                     'mp_success_url' => ['URL exito', 'url'],
