@@ -29,6 +29,12 @@ class MS_Donaciones_REST {
             'permission_callback' => '__return_true',
         ]);
 
+        register_rest_route('donacion/v1', '/retorno-suscripcion', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'retorno_suscripcion'],
+            'permission_callback' => '__return_true',
+        ]);
+
         register_rest_route('donacion/v1', '/webhook', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'webhook_mercado_pago'],
@@ -178,13 +184,21 @@ class MS_Donaciones_REST {
         }
 
         $external_reference = 'suscripcion-' . time() . '-' . wp_generate_password(6, false, false);
-        $back_url = esc_url_raw($settings['mp_success_url'] ?? '');
+
+        // back_url points to our own return endpoint so we can process the subscription the moment the
+        // donor comes back from Mercado Pago, without depending on the (often-delayed) webhook. MP requires
+        // an HTTPS URL here, so we reuse the public host from the configured webhook URL (ngrok / prod domain).
+        $back_url = self::build_public_rest_url($settings, 'retorno-suscripcion');
+        if (!$back_url) {
+            $back_url = esc_url_raw($settings['mp_success_url'] ?? '');
+        }
 
         $body = [
             'reason'         => sanitize_text_field($settings['mp_item_title'] ?? 'Donación mensual Módulo Sanitario'),
             'external_reference' => $external_reference,
             'payer_email'    => $email,
             'back_url'       => $back_url,
+            'notification_url' => esc_url_raw($settings['mp_webhook_url'] ?? ''),
             'auto_recurring' => [
                 'frequency'          => 1,
                 'frequency_type'     => 'months',
@@ -192,6 +206,8 @@ class MS_Donaciones_REST {
                 'currency_id'        => 'ARS',
             ],
         ];
+
+        error_log('MS Donaciones - Preapproval request: ref=' . $external_reference . ' monto=' . $monto . ' ARS | token_prefix: ' . substr($access_token, 0, 8));
 
         $response = wp_remote_post('https://api.mercadopago.com/preapproval', [
             'headers' => [
@@ -365,7 +381,7 @@ class MS_Donaciones_REST {
         $contact_id = $contact_result['contact_id'];
         $account_id = $contact_id ? self::sf_get_account_id($auth, $contact_id) : null;
 
-        self::sf_create_opportunity($auth, $settings, $payment, $donor_data, $contact_id, $account_id, $amount);
+        self::sf_create_opportunity($auth, $settings, $payment, $donor_data, $contact_id, $account_id, $amount, 'unico');
     }
 
     private static function handle_authorized_subscription($settings, $preapproval, $external_reference) {
@@ -423,7 +439,7 @@ class MS_Donaciones_REST {
             'status'             => 'authorized',
         ];
 
-        self::sf_create_opportunity($auth, $settings, $payment_stub, $donor_data, $contact_id, $account_id, $amount);
+        self::sf_create_opportunity($auth, $settings, $payment_stub, $donor_data, $contact_id, $account_id, $amount, 'mensual');
     }
 
     private static function handle_subscription_payment($settings, $auth_payment, $preapproval_id) {
@@ -476,7 +492,65 @@ class MS_Donaciones_REST {
         $contact_id = ($contact_result['success'] ?? false) ? ($contact_result['contact_id'] ?? null) : null;
         $account_id = $contact_id ? self::sf_get_account_id($auth, $contact_id) : null;
 
-        self::sf_create_opportunity($auth, $settings, $payment_stub, $donor_data, $contact_id, $account_id, $amount);
+        self::sf_create_opportunity($auth, $settings, $payment_stub, $donor_data, $contact_id, $account_id, $amount, 'mensual');
+    }
+
+    /**
+     * Donor returns here from the Mercado Pago subscription checkout (back_url).
+     * Verifies the preapproval status and processes it immediately, so the Salesforce
+     * Opportunity is created without waiting for the webhook. Idempotent: if the webhook
+     * also fires, the lock in handle_authorized_subscription prevents a duplicate.
+     */
+    public static function retorno_suscripcion($request) {
+        $preapproval_id = sanitize_text_field($request->get_param('preapproval_id') ?? '');
+        $settings       = array_merge(
+            MS_Donaciones_Shortcodes::default_labels(),
+            get_option('ms_donaciones_labels', [])
+        );
+        $access_token = sanitize_text_field($settings['mp_access_token'] ?? '');
+        $success_url  = esc_url_raw($settings['mp_success_url'] ?? '') ?: home_url('/');
+
+        if ($preapproval_id && $access_token) {
+            $response = wp_remote_get('https://api.mercadopago.com/preapproval/' . rawurlencode($preapproval_id), [
+                'headers' => ['Authorization' => 'Bearer ' . $access_token],
+                'timeout' => 15,
+            ]);
+
+            if (!is_wp_error($response)) {
+                $preapproval        = json_decode(wp_remote_retrieve_body($response), true);
+                $status             = $preapproval['status'] ?? 'unknown';
+                $external_reference = sanitize_text_field($preapproval['external_reference'] ?? '');
+
+                error_log('MS Donaciones - Retorno suscripcion ' . $preapproval_id . ' status: ' . $status);
+
+                if ($status === 'authorized' && $external_reference) {
+                    self::handle_authorized_subscription($settings, $preapproval, $external_reference);
+                }
+            }
+        }
+
+        // Use wp_redirect (not wp_safe_redirect): the success URL is an admin-configured external
+        // domain (e.g. the org's thank-you page), which wp_safe_redirect would reject and bounce
+        // back to the local site. The URL is trusted config, not user input, so this is safe.
+        wp_redirect($success_url);
+        exit;
+    }
+
+    /**
+     * Builds a public, HTTPS REST URL for the given route by reusing the host of the configured
+     * webhook URL (ngrok in dev, the real domain in prod). Returns '' if no usable host is set.
+     */
+    private static function build_public_rest_url($settings, $route) {
+        $webhook = $settings['mp_webhook_url'] ?? '';
+        if (!$webhook) {
+            return '';
+        }
+        $parts = wp_parse_url($webhook);
+        if (empty($parts['scheme']) || empty($parts['host'])) {
+            return '';
+        }
+        $base = $parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
+        return esc_url_raw($base . '/wp-json/donacion/v1/' . $route);
     }
 
     public static function guardar_cliente($request) {
@@ -745,16 +819,18 @@ class MS_Donaciones_REST {
         return $result['records'][0]['AccountId'] ?? null;
     }
 
-    private static function sf_create_opportunity($auth, $settings, $payment, $donor_data, $contact_id, $account_id, $amount) {
+    private static function sf_create_opportunity($auth, $settings, $payment, $donor_data, $contact_id, $account_id, $amount, $tipo = 'unico') {
         $api_base = $auth['instance_url'] . '/services/data/v59.0';
         $headers  = [
             'Authorization' => 'Bearer ' . $auth['token'],
             'Content-Type'  => 'application/json',
         ];
 
+        $es_mensual = ($tipo === 'mensual');
         $stage      = sanitize_text_field($settings['sf_opp_stage'] ?? 'Closed Won');
         $fullname   = trim(($donor_data['nombre'] ?? '') . ' ' . ($donor_data['apellido'] ?? ''));
-        $opp_name   = substr('Donacion MP - ' . ($fullname ?: 'Donante'), 0, 120);
+        $prefix     = $es_mensual ? 'Donacion MP Mensual - ' : 'Donacion MP Unica - ';
+        $opp_name   = substr($prefix . ($fullname ?: 'Donante'), 0, 120);
         $payment_id = sanitize_text_field((string) ($payment['id'] ?? ''));
 
         $opp_fields = [
@@ -762,8 +838,15 @@ class MS_Donaciones_REST {
             'Amount'    => $amount,
             'CloseDate' => date('Y-m-d'),
             'StageName' => $stage,
-            'Description' => 'Donacion via Mercado Pago. Payment ID: ' . $payment_id,
+            'Description' => 'Donacion ' . ($es_mensual ? 'mensual (suscripción)' : 'única') . ' via Mercado Pago. Payment ID: ' . $payment_id,
         ];
+
+        // Optional: map the donation type to a Salesforce Opportunity "Type" picklist value.
+        // Left empty by default so it never clashes with a restricted picklist; configure per-org if needed.
+        $opp_type = sanitize_text_field($settings[$es_mensual ? 'sf_opp_type_mensual' : 'sf_opp_type_unico'] ?? '');
+        if ($opp_type) {
+            $opp_fields['Type'] = $opp_type;
+        }
 
         if ($contact_id) {
             $opp_fields['ContactId'] = $contact_id;
