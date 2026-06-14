@@ -23,6 +23,12 @@ class MS_Donaciones_REST {
             'permission_callback' => '__return_true',
         ]);
 
+        register_rest_route('donacion/v1', '/crear-suscripcion', [
+            'methods'             => 'POST',
+            'callback'            => [__CLASS__, 'crear_suscripcion_mercado_pago'],
+            'permission_callback' => '__return_true',
+        ]);
+
         register_rest_route('donacion/v1', '/webhook', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'webhook_mercado_pago'],
@@ -144,34 +150,165 @@ class MS_Donaciones_REST {
         ], 500);
     }
 
+    public static function crear_suscripcion_mercado_pago($request) {
+        $params = $request->get_json_params();
+        $settings = array_merge(
+            MS_Donaciones_Shortcodes::default_labels(),
+            get_option('ms_donaciones_labels', [])
+        );
+        $access_token = sanitize_text_field($settings['mp_access_token'] ?? '');
+        $monto        = (float) ($params['monto'] ?? 0);
+        $nombre       = sanitize_text_field($params['nombre'] ?? '');
+        $apellido     = sanitize_text_field($params['apellido'] ?? '');
+        $email        = sanitize_email($params['email'] ?? '');
+        $dni          = sanitize_text_field($params['dni'] ?? '');
+
+        if (!$access_token) {
+            return new WP_REST_Response([
+                'success' => false,
+                'error'   => 'Falta configurar el Access Token de Mercado Pago.',
+            ], 500);
+        }
+
+        if ($monto < 100) {
+            return new WP_REST_Response([
+                'success' => false,
+                'error'   => 'Monto inválido.',
+            ], 400);
+        }
+
+        $external_reference = 'suscripcion-' . time() . '-' . wp_generate_password(6, false, false);
+        $back_url = esc_url_raw($settings['mp_success_url'] ?? '');
+
+        $body = [
+            'reason'         => sanitize_text_field($settings['mp_item_title'] ?? 'Donación mensual Módulo Sanitario'),
+            'external_reference' => $external_reference,
+            'payer_email'    => $email,
+            'back_url'       => $back_url,
+            'auto_recurring' => [
+                'frequency'          => 1,
+                'frequency_type'     => 'months',
+                'transaction_amount' => $monto,
+                'currency_id'        => 'ARS',
+            ],
+        ];
+
+        $response = wp_remote_post('https://api.mercadopago.com/preapproval', [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $access_token,
+                'Content-Type'  => 'application/json',
+            ],
+            'body'    => wp_json_encode($body),
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'error'   => 'Error conectando con Mercado Pago.',
+                'detalle' => $response->get_error_message(),
+            ], 500);
+        }
+
+        $data      = json_decode(wp_remote_retrieve_body($response), true);
+        $http_code = wp_remote_retrieve_response_code($response);
+        $init_point = $data['init_point'] ?? null;
+
+        if ($init_point) {
+            set_transient('ms_don_mp_' . $external_reference, [
+                'nombre'   => $nombre,
+                'apellido' => $apellido,
+                'email'    => $email,
+                'dni'      => $dni,
+                'telefono' => '',
+                'monto'    => $monto,
+                'tipo'     => 'mensual',
+            ], 12 * HOUR_IN_SECONDS);
+
+            return new WP_REST_Response([
+                'success'            => true,
+                'init_point'         => $init_point,
+                'id'                 => sanitize_text_field($data['id'] ?? ''),
+                'external_reference' => $external_reference,
+            ], 200);
+        }
+
+        error_log('MS Donaciones - Error creando suscripción MP HTTP ' . $http_code . ': ' . substr(wp_remote_retrieve_body($response), 0, 1000));
+
+        return new WP_REST_Response([
+            'success'   => false,
+            'error'     => 'Error creando suscripción.',
+            'detalle'   => $data,
+            'http_code' => $http_code,
+        ], 500);
+    }
+
     public static function webhook_mercado_pago($request) {
         $params = $request->get_json_params();
         $topic  = sanitize_text_field($params['type'] ?? $params['topic'] ?? $request->get_param('type') ?? $request->get_param('topic') ?? '');
         $id     = sanitize_text_field($params['data']['id'] ?? $params['id'] ?? $request->get_param('id') ?? '');
 
-        if ($topic === 'payment' && $id) {
-            $settings     = array_merge(
-                MS_Donaciones_Shortcodes::default_labels(),
-                get_option('ms_donaciones_labels', [])
-            );
-            $access_token = sanitize_text_field($settings['mp_access_token'] ?? '');
+        $settings     = array_merge(
+            MS_Donaciones_Shortcodes::default_labels(),
+            get_option('ms_donaciones_labels', [])
+        );
+        $access_token = sanitize_text_field($settings['mp_access_token'] ?? '');
 
-            if ($access_token) {
-                $response = wp_remote_get('https://api.mercadopago.com/v1/payments/' . rawurlencode($id), [
-                    'headers' => ['Authorization' => 'Bearer ' . $access_token],
-                    'timeout' => 15,
-                ]);
+        if ($topic === 'payment' && $id && $access_token) {
+            $response = wp_remote_get('https://api.mercadopago.com/v1/payments/' . rawurlencode($id), [
+                'headers' => ['Authorization' => 'Bearer ' . $access_token],
+                'timeout' => 15,
+            ]);
 
-                if (!is_wp_error($response)) {
-                    $payment            = json_decode(wp_remote_retrieve_body($response), true);
-                    $status             = $payment['status'] ?? 'unknown';
-                    $external_reference = sanitize_text_field($payment['external_reference'] ?? '');
+            if (!is_wp_error($response)) {
+                $payment            = json_decode(wp_remote_retrieve_body($response), true);
+                $status             = $payment['status'] ?? 'unknown';
+                $external_reference = sanitize_text_field($payment['external_reference'] ?? '');
 
-                    error_log('MS Donaciones - MP Webhook payment ' . $id . ' status: ' . $status);
+                error_log('MS Donaciones - MP Webhook payment ' . $id . ' status: ' . $status);
 
-                    if ($status === 'approved' && $external_reference) {
-                        self::handle_approved_payment($settings, $payment, $external_reference);
-                    }
+                if ($status === 'approved' && $external_reference) {
+                    self::handle_approved_payment($settings, $payment, $external_reference);
+                }
+            }
+        }
+
+        // Suscripción autorizada por primera vez
+        if ($topic === 'subscription_preapproval' && $id && $access_token) {
+            $response = wp_remote_get('https://api.mercadopago.com/preapproval/' . rawurlencode($id), [
+                'headers' => ['Authorization' => 'Bearer ' . $access_token],
+                'timeout' => 15,
+            ]);
+
+            if (!is_wp_error($response)) {
+                $preapproval        = json_decode(wp_remote_retrieve_body($response), true);
+                $status             = $preapproval['status'] ?? 'unknown';
+                $external_reference = sanitize_text_field($preapproval['external_reference'] ?? '');
+
+                error_log('MS Donaciones - MP Webhook subscription_preapproval ' . $id . ' status: ' . $status);
+
+                if ($status === 'authorized' && $external_reference) {
+                    self::handle_authorized_subscription($settings, $preapproval, $external_reference);
+                }
+            }
+        }
+
+        // Cobro mensual ejecutado dentro de una suscripción activa
+        if ($topic === 'subscription_authorized_payment' && $id && $access_token) {
+            $response = wp_remote_get('https://api.mercadopago.com/authorized_payments/' . rawurlencode($id), [
+                'headers' => ['Authorization' => 'Bearer ' . $access_token],
+                'timeout' => 15,
+            ]);
+
+            if (!is_wp_error($response)) {
+                $auth_payment       = json_decode(wp_remote_retrieve_body($response), true);
+                $preapproval_id     = sanitize_text_field($auth_payment['preapproval_id'] ?? '');
+                $status             = $auth_payment['status'] ?? 'unknown';
+
+                error_log('MS Donaciones - MP Webhook subscription_authorized_payment ' . $id . ' status: ' . $status);
+
+                if ($status === 'processed' && $preapproval_id) {
+                    self::handle_subscription_payment($settings, $auth_payment, $preapproval_id);
                 }
             }
         }
@@ -229,6 +366,117 @@ class MS_Donaciones_REST {
         $account_id = $contact_id ? self::sf_get_account_id($auth, $contact_id) : null;
 
         self::sf_create_opportunity($auth, $settings, $payment, $donor_data, $contact_id, $account_id, $amount);
+    }
+
+    private static function handle_authorized_subscription($settings, $preapproval, $external_reference) {
+        $preapproval_id = sanitize_text_field((string) ($preapproval['id'] ?? ''));
+
+        global $wpdb;
+        $lock_option = 'ms_don_lock_sub_' . $preapproval_id;
+        $inserted = $wpdb->query($wpdb->prepare(
+            "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, %s)",
+            $lock_option, '1', 'no'
+        ));
+        if (!$inserted) {
+            error_log('MS Donaciones - Subscription ' . $preapproval_id . ' already processed, skipping.');
+            return;
+        }
+
+        $donor_data = get_transient('ms_don_mp_' . $external_reference);
+        if (!$donor_data) {
+            $donor_data = [
+                'nombre'   => sanitize_text_field($preapproval['payer_first_name'] ?? ''),
+                'apellido' => sanitize_text_field($preapproval['payer_last_name'] ?? ''),
+                'email'    => sanitize_email($preapproval['payer_email'] ?? ''),
+                'dni'      => '',
+                'telefono' => '',
+                'monto'    => (float) ($preapproval['auto_recurring']['transaction_amount'] ?? 0),
+            ];
+        }
+
+        $amount = (float) ($preapproval['auto_recurring']['transaction_amount'] ?? $donor_data['monto'] ?? 0);
+
+        if (($settings['sf_enabled'] ?? '0') !== '1') {
+            return;
+        }
+
+        $auth = self::get_sf_auth($settings);
+        if (!$auth) {
+            error_log('MS Donaciones - SF auth failed for subscription ' . $preapproval_id);
+            return;
+        }
+
+        $contact_result = self::sf_upsert_contact($auth, $settings, $donor_data);
+        if (!($contact_result['success'] ?? false)) {
+            error_log('MS Donaciones - SF Contact upsert failed for subscription ' . $preapproval_id);
+            return;
+        }
+
+        $contact_id = $contact_result['contact_id'];
+        $account_id = $contact_id ? self::sf_get_account_id($auth, $contact_id) : null;
+
+        // Build a fake payment-shaped array so sf_create_opportunity can reuse the same logic
+        $payment_stub = [
+            'id'                 => $preapproval_id,
+            'external_reference' => $external_reference,
+            'transaction_amount' => $amount,
+            'status'             => 'authorized',
+        ];
+
+        self::sf_create_opportunity($auth, $settings, $payment_stub, $donor_data, $contact_id, $account_id, $amount);
+    }
+
+    private static function handle_subscription_payment($settings, $auth_payment, $preapproval_id) {
+        $payment_id = sanitize_text_field((string) ($auth_payment['id'] ?? ''));
+
+        global $wpdb;
+        $lock_option = 'ms_don_lock_subpay_' . $payment_id;
+        $inserted = $wpdb->query($wpdb->prepare(
+            "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, %s)",
+            $lock_option, '1', 'no'
+        ));
+        if (!$inserted) {
+            error_log('MS Donaciones - Subscription payment ' . $payment_id . ' already processed, skipping.');
+            return;
+        }
+
+        $amount = (float) ($auth_payment['transaction_amount'] ?? 0);
+
+        error_log('MS Donaciones - Subscription payment ' . $payment_id . ' processed. Preapproval: ' . $preapproval_id . ' Amount: ' . $amount);
+
+        if (($settings['sf_enabled'] ?? '0') !== '1') {
+            return;
+        }
+
+        $auth = self::get_sf_auth($settings);
+        if (!$auth) {
+            error_log('MS Donaciones - SF auth failed for subscription payment ' . $payment_id);
+            return;
+        }
+
+        // Look up the Salesforce Contact via the preapproval external reference stored at subscription creation
+        // The recurring payment doesn't carry donor PII — we use what's still cached or stored in SF
+        $payment_stub = [
+            'id'                 => $payment_id,
+            'external_reference' => 'suscripcion-cobro-' . $preapproval_id,
+            'transaction_amount' => $amount,
+            'status'             => 'processed',
+        ];
+
+        $donor_data = [
+            'nombre'   => '',
+            'apellido' => '',
+            'email'    => sanitize_email($auth_payment['payer']['email'] ?? ''),
+            'dni'      => '',
+            'telefono' => '',
+            'monto'    => $amount,
+        ];
+
+        $contact_result = self::sf_upsert_contact($auth, $settings, $donor_data);
+        $contact_id = ($contact_result['success'] ?? false) ? ($contact_result['contact_id'] ?? null) : null;
+        $account_id = $contact_id ? self::sf_get_account_id($auth, $contact_id) : null;
+
+        self::sf_create_opportunity($auth, $settings, $payment_stub, $donor_data, $contact_id, $account_id, $amount);
     }
 
     public static function guardar_cliente($request) {
