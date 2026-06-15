@@ -185,6 +185,8 @@ h1 em { font-style: normal; background: linear-gradient(180deg, transparent 60%,
 .amount-custom { padding: 10px 14px; }
 .amount-custom input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 16px; font-weight: 700; padding: 4px 0; color: var(--ink); }
 .amount-custom input::placeholder { color: var(--ink-3); font-weight: 500; }
+.monthly-notice { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #e8f5ef; border: 1px solid #c3e6d4; border-radius: var(--radius); margin-bottom: 4px; font-size: 13px; color: var(--ink-2); }
+.monthly-notice svg { color: var(--success); flex-shrink: 0; }
 .methods-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin: 24px 0 12px; }
 .methods { list-style: none; padding: 0; margin: 0 0 28px; display: flex; flex-direction: column; gap: 12px; }
 .method-card { width: 100%; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; background: white; border: 1.5px solid var(--line); border-radius: var(--radius); padding: 18px; text-align: left; transition: all .18s; box-shadow: var(--shadow-sm); cursor: pointer; }
@@ -545,12 +547,13 @@ function Step2({ data, amount, setAmount, frequency, setFrequency, onBack, onSel
     onSelect(id);
   };
 
-  const methods = [
+  const allMethods = [
     { id:"mp",    name:cfg("method_mp_name", "Mercado Pago"), desc:cfg("method_mp_desc", "Tarjeta, dinero en cuenta o efectivo en Pago Fácil/Rapipago."), tags:cfgList("method_mp_tags", ["Recomendado","Sin comisión extra"]), icon:<Ic.MP width="48" height="48"/>, color:"#00B1EA" },
     { id:"local", name:cfg("method_local_name", "Tarjeta local (Argentina)"), desc:cfg("method_local_desc", "Crédito o débito emitida en Argentina. Hasta 3 cuotas sin interés."), tags:cfgList("method_local_tags", ["Crédito y débito"]), icon:<Ic.CardL width="48" height="48"/>, color:"#0B6FB8" },
     { id:"intl",  name:cfg("method_intl_name", "Tarjeta internacional"), desc:cfg("method_intl_desc", "Para donantes desde el exterior. Procesado en USD."), tags:cfgList("method_intl_tags", ["USD","Visa · Master · Amex"]), icon:<Ic.CardI width="48" height="48"/>, color:"#1F3A5F" },
     { id:"bank",  name:cfg("method_bank_name", "Transferencia bancaria"), desc:cfg("method_bank_desc", "Te mostramos los datos de la cuenta para hacer la transferencia."), tags:cfgList("method_bank_tags", ["CBU/Alias"]), icon:<Ic.Bank width="48" height="48"/>, color:"#0B6FB8" },
   ];
+  const methods = frequency === "mensual" ? allMethods.filter(m => m.id === "mp") : allMethods;
 
   return (
     <div className="step2-wrap">
@@ -589,6 +592,12 @@ function Step2({ data, amount, setAmount, frequency, setFrequency, onBack, onSel
         {amountError && <p className="err">{amountError}</p>}
       </fieldset>
       <ImpactStrip amount={amount||0}/>
+      {frequency === "mensual" && (
+        <div className="monthly-notice">
+          <Ic.Heart width="14" height="14"/>
+          <span>{cfg("monthly_notice", "Las donaciones mensuales se procesan exclusivamente a través de Mercado Pago. Podés cancelar cuando quieras.")}</span>
+        </div>
+      )}
       <h2 className="methods-title">{cfg("methods_title", "Método de pago")}</h2>
       <ul className="methods">
         {methods.map(m => {
@@ -631,7 +640,8 @@ function Step3({ data, amount, frequency, method, onBack, onRestart, guardarEnFo
 
   useEffect(() => {
     if (method === 'bank') { setLoading(false); return; }
-    fetch((window.MS_DONACIONES?.restUrl || "/wp-json/donacion/v1") + "/crear-preferencia", {
+    const endpoint = frequency === "mensual" ? "/crear-suscripcion" : "/crear-preferencia";
+    fetch((window.MS_DONACIONES?.restUrl || "/wp-json/donacion/v1") + endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -646,14 +656,15 @@ function Step3({ data, amount, frequency, method, onBack, onRestart, guardarEnFo
     .then(res => {
       if (res.success && res.init_point) {
         guardarEnFormidable(data, {
-          monto:         amount,
-          metodo:        method,
-          preference_id: res.id,
+          monto:              amount,
+          metodo:             method,
+          frecuencia:         frequency,
+          preference_id:      res.id,
           external_reference: res.external_reference,
         });
         window.location.href = res.init_point;
       } else {
-        console.error("MS Donaciones MP preference error:", res);
+        console.error("MS Donaciones MP error:", res);
         setError(cfg("step3_error_text", "No pudimos conectar con Mercado Pago. Intentá de nuevo."));
         setLoading(false);
       }
