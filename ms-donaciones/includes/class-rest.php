@@ -231,7 +231,7 @@ class MS_Donaciones_REST {
         $init_point = $data['init_point'] ?? null;
 
         if ($init_point) {
-            set_transient('ms_don_mp_' . $external_reference, [
+            $donor_data = [
                 'nombre'   => $nombre,
                 'apellido' => $apellido,
                 'email'    => $email,
@@ -239,7 +239,18 @@ class MS_Donaciones_REST {
                 'telefono' => '',
                 'monto'    => $monto,
                 'tipo'     => 'mensual',
-            ], 12 * HOUR_IN_SECONDS);
+            ];
+            set_transient('ms_don_mp_' . $external_reference, $donor_data, 12 * HOUR_IN_SECONDS);
+
+            $preapproval_id = sanitize_text_field($data['id'] ?? '');
+            if ($preapproval_id) {
+                // Persist donor data keyed by preapproval_id so the recurring monthly charges (which
+                // carry no donor PII) can still link to the right Salesforce Contact. And flag the first
+                // charge to be skipped: the authorization event already creates the month-0 Opportunity,
+                // so counting the first charge too would duplicate it.
+                update_option('ms_don_sub_donor_' . $preapproval_id, $donor_data, false);
+                update_option('ms_don_sub_skipfirst_' . $preapproval_id, '1', false);
+            }
 
             return new WP_REST_Response([
                 'success'            => true,
@@ -412,6 +423,11 @@ class MS_Donaciones_REST {
 
         $amount = (float) ($preapproval['auto_recurring']['transaction_amount'] ?? $donor_data['monto'] ?? 0);
 
+        // Make sure the donor mapping exists for future recurring charges (the charge events carry no PII).
+        if ($preapproval_id) {
+            update_option('ms_don_sub_donor_' . $preapproval_id, $donor_data, false);
+        }
+
         if (($settings['sf_enabled'] ?? '0') !== '1') {
             return;
         }
@@ -460,6 +476,14 @@ class MS_Donaciones_REST {
 
         error_log('MS Donaciones - Subscription payment ' . $payment_id . ' processed. Preapproval: ' . $preapproval_id . ' Amount: ' . $amount);
 
+        // Month 0: the authorization event (subscription_preapproval) already created the Opportunity.
+        // Skip the first charge so it isn't counted twice. Subsequent monthly charges create one each.
+        if (get_option('ms_don_sub_skipfirst_' . $preapproval_id)) {
+            delete_option('ms_don_sub_skipfirst_' . $preapproval_id);
+            error_log('MS Donaciones - First charge of subscription ' . $preapproval_id . ' skipped (already counted by the authorization).');
+            return;
+        }
+
         if (($settings['sf_enabled'] ?? '0') !== '1') {
             return;
         }
@@ -470,22 +494,25 @@ class MS_Donaciones_REST {
             return;
         }
 
-        // Look up the Salesforce Contact via the preapproval external reference stored at subscription creation
-        // The recurring payment doesn't carry donor PII — we use what's still cached or stored in SF
+        // Recurring charge (month 2+): the charge event carries no donor PII, so recover the donor from
+        // the mapping stored at subscription creation/authorization to link the right Salesforce Contact.
+        $donor_data = get_option('ms_don_sub_donor_' . $preapproval_id);
+        if (!is_array($donor_data) || empty($donor_data['email'])) {
+            $donor_data = [
+                'nombre'   => '',
+                'apellido' => '',
+                'email'    => sanitize_email($auth_payment['payer']['email'] ?? ''),
+                'dni'      => '',
+                'telefono' => '',
+            ];
+        }
+        $donor_data['monto'] = $amount;
+
         $payment_stub = [
             'id'                 => $payment_id,
             'external_reference' => 'suscripcion-cobro-' . $preapproval_id,
             'transaction_amount' => $amount,
             'status'             => 'processed',
-        ];
-
-        $donor_data = [
-            'nombre'   => '',
-            'apellido' => '',
-            'email'    => sanitize_email($auth_payment['payer']['email'] ?? ''),
-            'dni'      => '',
-            'telefono' => '',
-            'monto'    => $amount,
         ];
 
         $contact_result = self::sf_upsert_contact($auth, $settings, $donor_data);
