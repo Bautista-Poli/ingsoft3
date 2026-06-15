@@ -6,12 +6,13 @@ Antes de proceder con la instalación del sistema, es necesario contar con los s
     
 - Acceso al repositorio del plugin en Git.
     
-- Credenciales de Airtable.
+- Una cuenta de Salesforce (preferentemente Salesforce Developer Edition para pruebas y desarrollo).
+    
+- Credenciales de Salesforce configuradas según lo indicado en `SALESFORCE_SETUP.md`.
     
 - Credenciales de Mercado Pago (producción o entorno de pruebas).
     
 - Un navegador web moderno para pruebas del sistema.
-    
 
 ---
 
@@ -56,35 +57,35 @@ Una vez activado, el sistema quedará disponible dentro del entorno WordPress.
 
 ---
 
-## 8.4 Configuración de Airtable
+## 8.4 Configuración de Salesforce
 
-La configuración de Airtable es necesaria para habilitar el almacenamiento de datos de los donantes.
+La configuración de Salesforce es necesaria para habilitar la gestión de contactos y oportunidades de donación dentro del CRM.
 
 Pasos generales:
 
-1. Crear una cuenta en Airtable.
+1. Crear una cuenta en Salesforce (preferentemente Developer Edition para pruebas y desarrollo).
     
-2. Crear una base de datos con una tabla de donantes.
+2. Crear y configurar una Connected App en Salesforce.
     
-3. Configurar los campos requeridos:
+3. Obtener las credenciales necesarias para la integración:
     
-    - nombre
+    - Client ID
         
-    - apellido
+    - Client Secret
         
-    - dni
+    - URL/Dominio de Login de la organización
         
-    - email
-        
-    - teléfono
-        
-4. Obtener la API Key o token de acceso.
+4. Configurar las credenciales dentro del plugin de WordPress.
     
-5. Configurar las credenciales dentro del plugin de WordPress.
+5. Utilizar la funcionalidad de prueba de conexión para verificar la integración.
     
 
-Documentación oficial de Airtable:  
-[https://airtable.com/developers/web/api/introduction](https://airtable.com/developers/web/api/introduction)
+La guía detallada de configuración se encuentra documentada en:
+
+`SALESFORCE_SETUP.md`
+
+Documentación oficial de Salesforce:  
+[https://developer.salesforce.com/](https://developer.salesforce.com/)
 
 ---
 
@@ -117,23 +118,24 @@ Documentación oficial de Mercado Pago:
 Una vez completada la instalación y configuración, se recomienda realizar las siguientes pruebas:
 
 - Acceso al formulario de donación desde WordPress.
-	
+    
 - Envío de datos de prueba.
-	
-- Verificación de registro en Airtable.
-	
-- Prueba de redirección a pasarela de pago.
-	
+    
+- Verificación de creación o actualización de Contacts en Salesforce.
+    
+- Verificación de creación de Opportunities asociadas a las donaciones, cuando corresponda.
+    
+- Prueba de redirección a la pasarela de pago.
+    
 - Validación del flujo de retorno (éxito / error).
-	
+    
 - Utilización de los botones de prueba de conexión provistos por el plugin para verificar la conectividad con los servicios externos.
-	
-- Verificación de conexión correcta con Airtable (CRM).
-	
+    
+- Verificación de conexión correcta con Salesforce (CRM).
+    
 - Verificación de conexión correcta con Mercado Pago.
-	
+    
 - Confirmación de que las credenciales configuradas responden correctamente antes de habilitar el sistema en producción.
-	
 ---
 
 ## 8.7 Consideraciones finales

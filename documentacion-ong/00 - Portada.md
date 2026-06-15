@@ -41,7 +41,7 @@ Pontificia Universidad Católica Argentina (UCA)
     
 - JavaScript
     
-- Airtable
+- Salesforce
     
 - Mercado Pago
     

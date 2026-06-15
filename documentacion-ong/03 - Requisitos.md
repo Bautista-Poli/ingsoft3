@@ -26,11 +26,11 @@ Es necesario descargar el código fuente del plugin desde el [repositorio corres
 
 ## 3.2 Requisitos de servicios externos
 
-### Airtable
+### Salesforce
 
-Se requiere [Airtable ](https://airtable.com/)para la persistencia de datos de los donantes.
+Se requiere una cuenta en Salesforce para la gestión y almacenamiento de la información de los donantes. El sistema utiliza Salesforce como CRM principal, permitiendo registrar contactos y asociar oportunidades de donación dentro de una plataforma centralizada de administración y seguimiento.
 
-El uso de una cuenta en Airtable es opcional para visualización desde dispositivos móviles o administración externa.
+Para realizar pruebas o implementar el sistema, es posible utilizar una cuenta gratuita de Salesforce Developer Edition. La configuración de la integración se encuentra detallada en el archivo `SALESFORCE_SETUP.md`.
 
 ---
 
@@ -59,4 +59,4 @@ Para pruebas del sistema, se recomienda utilizar una [cuenta de sandbox o modo t
 
 El sistema está diseñado para funcionar en entornos de desarrollo locales y puede ser posteriormente adaptado a un entorno de producción en un servidor web.
 
-La configuración de servicios externos (Airtable y Mercado Pago) es necesaria para el correcto funcionamiento del flujo completo de donación.
+La configuración de servicios externos (Salesforce y Mercado Pago) es necesaria para el correcto funcionamiento del flujo completo de donación. Asimismo, es necesario contar con las credenciales correspondientes para cada integración y verificar su correcta configuración antes de realizar pruebas funcionales o despliegues en producción.

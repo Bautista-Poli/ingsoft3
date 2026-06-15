@@ -10,7 +10,11 @@ Las pruebas se centran principalmente en la validación funcional del sistema, d
 
 El sistema fue evaluado mediante pruebas funcionales manuales, simulando el comportamiento de un usuario final dentro del entorno de desarrollo local.
 
-No se implementaron aún pruebas automatizadas (unitarias o de integración), aunque el diseño modular del plugin permite su incorporación futura. Adicionalmente, se incorporaron botones de verificación dentro del plugin para comprobar el estado de conexión con Mercado Pago y Airtable, permitiendo validar de manera rápida si las integraciones externas fueron configuradas correctamente.
+No se implementaron aún pruebas automatizadas (unitarias o de integración), aunque el diseño modular del plugin permite su incorporación futura.
+
+Adicionalmente, se incorporaron herramientas de verificación dentro del plugin para comprobar el estado de conexión con Salesforce y Mercado Pago, permitiendo validar de manera rápida si las integraciones externas fueron configuradas correctamente.
+
+Las pruebas realizadas contemplan tanto la correcta comunicación con los servicios externos como el funcionamiento del flujo completo de captura de datos, creación de registros en el CRM y procesamiento de pagos.
 
 ---
 
@@ -27,14 +31,13 @@ No se implementaron aún pruebas automatizadas (unitarias o de integración), au
 
 ---
 
-### 2. Registro en Airtable
+### 2. Registro en Salesforce
 
-- **Descripción:** Validar que los datos del donante se almacenen correctamente en Airtable.
+- **Descripción:** Validar que los datos del donante se registren correctamente en Salesforce.
     
-- **Resultado esperado:** Creación de un nuevo registro en la tabla de CRM.
+- **Resultado esperado:** Creación o actualización exitosa de un Contact dentro del CRM.
     
-- **Resultado observado:** Correcto mediante API.
-    
+- **Resultado observado:** Correcto mediante integración API.
 
 ---
 
@@ -77,13 +80,16 @@ El sistema cumple con el flujo funcional esperado en entorno de desarrollo, perm
 
 - Captura de datos de donantes.
     
-- Almacenamiento en Airtable.
+- Registro y gestión de información en Salesforce.
+    
+- Creación y actualización de Contacts.
+    
+- Registro de Opportunities asociadas a las donaciones.
     
 - Integración con Mercado Pago.
     
 - Redirección y retorno del flujo de pago.
-    
-
+	
 ---
 
 ## 9.5 Limitaciones de las pruebas

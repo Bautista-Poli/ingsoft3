@@ -1,8 +1,10 @@
 ## 7.1 Estado actual de seguridad
 
-El sistema, en su estado actual de desarrollo, incorpora únicamente mecanismos básicos de validación y control de datos, sin contar aún con un esquema completo de seguridad avanzado implementado a nivel de producción.
+El sistema, en su estado actual de desarrollo, incorpora mecanismos básicos de validación y control de datos, sin contar aún con un esquema completo de seguridad avanzado orientado a entornos de producción.
 
-Dado que la arquitectura se basa en integraciones con servicios externos (Airtable y Mercado Pago), parte de la seguridad del sistema depende de las garantías provistas por dichos proveedores.
+Dado que la arquitectura se basa en integraciones con servicios externos (Salesforce y Mercado Pago), parte de la seguridad del sistema depende de las garantías, mecanismos de autenticación y controles provistos por dichos proveedores.
+
+Las credenciales necesarias para la integración con servicios externos son gestionadas desde el panel administrativo del plugin y utilizadas exclusivamente por el backend de WordPress, evitando su exposición directa al frontend o a los usuarios finales.
 
 ---
 
@@ -29,14 +31,14 @@ Estas validaciones se implementan principalmente en el frontend (JavaScript) y s
 
 El sistema requiere credenciales para la integración con servicios externos:
 
-- API Key de Airtable.
+- Credenciales de autenticación de Salesforce (Client ID, Client Secret y parámetros de conexión).
     
 - Token de acceso de Mercado Pago.
     
 
 Estas credenciales son configuradas dentro del plugin de WordPress y se utilizan para autenticar las solicitudes hacia las APIs correspondientes.
 
-Actualmente, el manejo de credenciales no incluye mecanismos avanzados de encriptación o gestión de secretos, por lo que se recomienda su configuración en entornos controlados.
+Actualmente, el manejo de credenciales no incluye mecanismos avanzados de gestión de secretos, rotación automática de credenciales o integración con servicios especializados de almacenamiento seguro, por lo que se recomienda su configuración y administración en entornos controlados y con acceso restringido.
 
 ---
 
@@ -44,16 +46,19 @@ Actualmente, el manejo de credenciales no incluye mecanismos avanzados de encrip
 
 Se identifican los siguientes riesgos asociados al estado actual del sistema:
 
-- **Exposición de credenciales:** almacenamiento de tokens dentro de la configuración del plugin.
+- **Exposición de credenciales:** almacenamiento de credenciales de Salesforce y tokens de Mercado Pago dentro de la configuración del plugin.
     
-- **Validación insuficiente en backend:** dependencia parcial de validaciones del frontend.
+- **Validación insuficiente en backend:** dependencia parcial de validaciones realizadas en el frontend.
     
-- **Dependencia de servicios externos:** el sistema depende del correcto funcionamiento de Airtable y Mercado Pago.
+- **Dependencia de servicios externos:** el sistema depende del correcto funcionamiento y disponibilidad de Salesforce y Mercado Pago.
     
-- **Falta de mecanismos anti-spam:** posibilidad de envíos automatizados al formulario.
+- **Falta de mecanismos anti-spam:** posibilidad de envíos automatizados o maliciosos al formulario de donación.
     
-- **Ausencia de control avanzado de sesiones o autenticación:** el formulario es de acceso público.
+- **Ausencia de controles avanzados de protección:** actualmente no se cuenta con mecanismos específicos como CAPTCHA, limitación de solicitudes o detección de actividad automatizada.
     
+- **Dependencia de configuraciones externas:** errores en la configuración de Salesforce o Mercado Pago pueden afectar el funcionamiento del flujo completo de donación.
+    
+- **Formulario de acceso público:** el proceso de donación está diseñado para ser accesible sin autenticación previa, lo que incrementa la necesidad de controles adicionales de validación y protección.
 
 ---
 

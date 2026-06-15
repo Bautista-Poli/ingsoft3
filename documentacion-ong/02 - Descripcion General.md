@@ -10,7 +10,7 @@ El sistema permite configurar dinámicamente el formulario de donación, incluye
 
 ---
 
-## 2.2 Flujo general del sistema
+## ## 2.2 Flujo general del sistema
 
 El flujo de funcionamiento del sistema se compone de una serie de etapas secuenciales que permiten guiar al usuario desde el ingreso al formulario hasta la finalización del proceso de donación:
 
@@ -18,19 +18,20 @@ El flujo de funcionamiento del sistema se compone de una serie de etapas secuenc
     
 2. Completa sus datos personales en el formulario.
     
-3. El sistema registra la información del usuario en Airtable como repositorio de tipo CRM.
+3. El sistema registra la información del usuario en Salesforce mediante la creación o actualización de un Contact.
     
 4. El usuario selecciona el método de pago disponible.
     
 5. El sistema genera la redirección hacia la pasarela de pago correspondiente.
-		
+    
 6. El usuario completa la transacción en la plataforma externa.
     
-7. La pasarela de pago devuelve el resultado del proceso al sistema.
+7. En caso de corresponder, el sistema registra una Opportunity asociada al Contact en Salesforce para representar la intención o realización de la donación.
     
-8. El sistema redirige al usuario a una pantalla final de confirmación o error dentro del sitio.
+8. La pasarela de pago devuelve el resultado del proceso al sistema.
     
-
+9. El sistema redirige al usuario a una pantalla final de confirmación o error dentro del sitio.
+	
 ---
 
 ## 2.3 Componentes del sistema
@@ -54,10 +55,9 @@ Módulo desarrollado en PHP y JavaScript que extiende WordPress y centraliza la 
 - gestión del flujo de donación.
     
 
-### Airtable (CRM liviano)
+### Salesforce (CRM)
 
-Se utiliza como sistema de almacenamiento estructurado para registrar los datos de los donantes, funcionando como una base de datos externa de tipo CRM.
-
+Se utiliza como sistema de gestión de relaciones con donantes (CRM), permitiendo almacenar, organizar y administrar la información de contactos y contribuciones. La integración con Salesforce facilita el seguimiento de potenciales donantes, el registro de oportunidades de donación y la centralización de la información dentro de una plataforma ampliamente utilizada en entornos organizacionales.
 ### Pasarelas de pago
 
 Servicios externos encargados del procesamiento de pagos. En la versión actual del sistema se encuentra integrada la plataforma Mercado Pago, con posibilidad de extender a otros proveedores en el futuro.

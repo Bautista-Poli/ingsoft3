@@ -8,7 +8,7 @@ El plugin se organiza en los siguientes módulos funcionales:
     
 - **Media y links:** configuración de imágenes, recursos multimedia y enlaces externos utilizados en la interfaz.
     
-- **Datos personales a CRM:** gestión y envío de la información personal del donante hacia Airtable.
+- **Datos personales a CRM:** gestión y envío de la información personal del donante hacia Salesforce.
     
 - **Montos:** configuración de los importes de donación disponibles para el usuario.
     
@@ -18,6 +18,7 @@ El plugin se organiza en los siguientes módulos funcionales:
     
 - **Transferencia:** configuración de datos e instrucciones para donaciones mediante transferencia bancaria.
     
+- **Salesforce:** configuración de la integración CRM, incluyendo credenciales, parámetros de conexión y validación de acceso a la organización.
 
 ---
 
@@ -71,23 +72,29 @@ Sus principales funciones incluyen:
     
 - Coordinación del flujo de donación.
     
-- Integración con APIs externas (Airtable y Mercado Pago).
+- Integración con APIs externas (Salesforce y Mercado Pago).
+    
+- Creación y actualización de Contacts en Salesforce.
+    
+- Registro de Opportunities asociadas a las donaciones.
     
 - Generación de redirecciones hacia pasarelas de pago.
     
 
 ---
 
-## 5.5 Integración con Airtable
+## 5.5 Integración con Salesforce
 
-El sistema utiliza Airtable como repositorio externo de datos tipo CRM.
+El sistema utiliza Salesforce como plataforma CRM para la gestión de donantes y el seguimiento de contribuciones.
 
-La integración se realiza mediante su API REST, permitiendo almacenar la información de los donantes de manera estructurada.
+La integración se realiza mediante las APIs oficiales de Salesforce, permitiendo registrar y administrar la información de contactos y oportunidades de donación de manera centralizada.
 
 Documentación oficial:  
-[https://airtable.com/developers/web/api/introduction](https://airtable.com/developers/web/api/introduction)
+[https://developer.salesforce.com/](https://developer.salesforce.com/)
 
 Los datos enviados incluyen información personal del donante, tales como nombre, apellido, DNI, correo electrónico y número de teléfono.
+
+Adicionalmente, el sistema puede generar Opportunities asociadas a los Contacts registrados, permitiendo vincular las contribuciones realizadas con cada donante dentro del CRM.
 
 ---
 
@@ -119,7 +126,7 @@ El comportamiento del sistema en tiempo de ejecución puede resumirse de la sigu
     
 2. El frontend valida y envía los datos al backend del plugin.
     
-3. El backend registra la información en Airtable.
+3. El backend registra la información del donante en Salesforce mediante la creación o actualización de un Contact.
     
 4. El usuario selecciona el método de pago.
     
@@ -129,8 +136,9 @@ El comportamiento del sistema en tiempo de ejecución puede resumirse de la sigu
     
 7. Se procesa el pago.
     
-8. El usuario retorna al sistema con el resultado de la operación.
+8. En caso de corresponder, el sistema registra una Opportunity asociada al Contact en Salesforce.
     
+9. El usuario retorna al sistema con el resultado de la operación.
 
 ---
 

@@ -37,9 +37,9 @@ El plugin desarrollado en PHP y JavaScript es el componente central del sistema.
 
 ---
 
-### [Airtable](https://airtable.com/developers/web/api/introduction) (persistencia de datos / CRM)
+### [Salesforce](https://developer.salesforce.com/) (CRM)
 
-Airtable se utiliza como sistema de almacenamiento estructurado para registrar los datos de los donantes. Funciona como un CRM liviano que permite visualizar y gestionar la información recolectada.
+Salesforce se utiliza como sistema de gestión de relaciones con donantes (CRM). Permite registrar, organizar y administrar la información de contactos y contribuciones, centralizando los datos recolectados durante el proceso de donación y facilitando su seguimiento dentro de una plataforma especializada.
 
 ---
 
@@ -57,13 +57,13 @@ LocalWP es la herramienta utilizada para la ejecución del entorno de desarrollo
 
 ## 4.3 Flujo de arquitectura del sistema
 
-El sistema sigue un flujo desacoplado entre captura de datos, persistencia y procesamiento de pagos:
+El sistema sigue un flujo desacoplado entre captura de datos, gestión de relaciones con donantes y procesamiento de pagos:
 
 1. El usuario accede al formulario en WordPress.
     
 2. El plugin procesa la información ingresada.
     
-3. Los datos del usuario se envían a Airtable para almacenamiento.
+3. Los datos del usuario se envían a Salesforce, donde se crea o actualiza un Contact.
     
 4. El usuario selecciona un método de pago.
     
@@ -71,10 +71,12 @@ El sistema sigue un flujo desacoplado entre captura de datos, persistencia y pro
     
 6. El usuario completa el pago en la plataforma externa.
     
-7. La pasarela devuelve el resultado del pago al sistema.
+7. En caso de corresponder, el sistema registra una Opportunity asociada al Contact dentro de Salesforce.
     
-8. El usuario es redirigido a una pantalla final de confirmación o error.
+8. La pasarela devuelve el resultado del pago al sistema.
     
+9. El usuario es redirigido a una pantalla final de confirmación o error.
+	
 
 ---
 
@@ -82,14 +84,13 @@ El sistema sigue un flujo desacoplado entre captura de datos, persistencia y pro
 
 El sistema puede representarse como una arquitectura de flujo de datos donde WordPress funciona como orquestador central:
 
-- WordPress + Plugin → Orquestación del flujo
+- **WordPress + Plugin MS Donaciones** → Orquestación del flujo de negocio y gestión de integraciones.
     
-- Airtable → Persistencia de datos (CRM)
+- **Salesforce** → Gestión de contactos y oportunidades de donación (CRM).
     
-- Mercado Pago → Procesamiento de pagos
+- **Mercado Pago** → Procesamiento y validación de pagos.
     
-- Usuario → Interacción principal del sistema
-    
+- **Usuario** → Interacción principal del sistema.
 
 ---
 
@@ -116,6 +117,8 @@ La arquitectura fue diseñada con el objetivo de:
     
 - Permitir la integración futura de múltiples pasarelas de pago.
     
-- Externalizar la gestión de datos a un sistema tipo CRM (Airtable).
+- Externalizar la gestión de relaciones con donantes mediante una plataforma CRM especializada (Salesforce).
     
-- Mantener una estructura modular y mantenible.
+- Centralizar la información de contactos y oportunidades de donación en un sistema institucional.
+    
+- Mantener una estructura modular, escalable y mantenible.

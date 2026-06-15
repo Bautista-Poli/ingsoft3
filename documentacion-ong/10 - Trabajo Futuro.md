@@ -1,6 +1,6 @@
 ## 10.1 Extensión de pasarelas de pago
 
-En la versión actual del sistema, la integración de pagos se encuentra implementada únicamente con Mercado Pago. Como línea de mejora futura, se contempla la incorporación de nuevas pasarelas de pago con el objetivo de ampliar las opciones disponibles para los usuarios.
+En la versión actual del sistema, la integración de pagos se encuentra implementada principalmente con Mercado Pago. Como línea de mejora futura, se contempla la incorporación de nuevas pasarelas de pago con el objetivo de ampliar las opciones disponibles para los usuarios.
 
 Entre las posibles integraciones se incluyen:
 
@@ -9,6 +9,8 @@ Entre las posibles integraciones se incluyen:
 - Sistemas bancarios locales.
     
 - Nuevas plataformas de pago digital.
+    
+- Pasarelas con soporte nativo para suscripciones y donaciones recurrentes.
     
 
 Esto permitiría aumentar la flexibilidad del sistema y adaptarlo a diferentes contextos geográficos y financieros.
@@ -25,7 +27,9 @@ Como mejora futura, se propone:
     
 - Gestionar estados de recurrencia dentro del sistema.
     
-- Permitir seguimiento de donaciones periódicas desde el CRM.
+- Permitir seguimiento de donaciones periódicas desde Salesforce.
+    
+- Automatizar la actualización de oportunidades y registros asociados a donantes recurrentes.
     
 
 ---
@@ -44,6 +48,8 @@ El sistema requiere mejoras en términos de seguridad para su despliegue en prod
     
 - Validaciones redundantes entre frontend y backend.
     
+- Fortalecimiento de la gestión de credenciales de Salesforce y Mercado Pago.
+    
 
 ---
 
@@ -51,13 +57,15 @@ El sistema requiere mejoras en términos de seguridad para su despliegue en prod
 
 Se propone la incorporación de un panel administrativo más completo dentro del plugin de WordPress, que permita:
 
-- Visualización centralizada de donaciones.
+- Visualización centralizada de configuraciones.
     
 - Estado de conexiones con servicios externos.
     
 - Estadísticas básicas de uso del formulario.
     
 - Gestión más intuitiva de configuraciones del sistema.
+    
+- Herramientas de diagnóstico para las integraciones con Salesforce y Mercado Pago.
     
 
 ---
@@ -68,11 +76,13 @@ Como evolución del sistema, se plantea la automatización de ciertos procesos, 
 
 - Notificaciones automáticas por email a la ONG.
     
-- Confirmaciones automáticas de donación.
+- Confirmaciones automáticas de donación para los usuarios.
     
-- Sincronización avanzada con Airtable.
+- Automatización de procesos de seguimiento dentro de Salesforce.
     
-- Flujos de seguimiento de donantes.
+- Creación y actualización automática de registros CRM según el estado de las donaciones.
+    
+- Flujos de seguimiento y segmentación de donantes.
     
 
 ---
@@ -85,6 +95,8 @@ La arquitectura actual permite futuras expansiones sin modificaciones estructura
     
 - Implementación de caché en ciertas operaciones.
     
+- Optimización de integraciones con Salesforce y pasarelas de pago.
+    
 - Migración parcial a servicios backend dedicados si el volumen de usuarios aumenta.
     
 
@@ -95,3 +107,5 @@ La arquitectura actual permite futuras expansiones sin modificaciones estructura
 El sistema se encuentra en una etapa de desarrollo intermedia, por lo que estas mejoras representan líneas evolutivas naturales del proyecto.
 
 La arquitectura modular implementada facilita la incorporación progresiva de nuevas funcionalidades sin afectar el funcionamiento actual.
+
+La adopción de Salesforce como plataforma CRM proporciona una base sólida para futuras capacidades de gestión, automatización y seguimiento de donantes, permitiendo que el sistema evolucione junto con las necesidades operativas de la organización.

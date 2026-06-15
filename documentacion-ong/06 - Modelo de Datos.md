@@ -1,12 +1,10 @@
 ## 6.1 Enfoque del modelo de datos
 
-El sistema no utiliza una base de datos relacional propia dentro de WordPress como fuente principal de información, sino que delega la persistencia de datos de donantes a un sistema externo: Airtable.
+El sistema no utiliza una base de datos relacional propia dentro de WordPress como fuente principal de información para la gestión de donantes, sino que delega dicha responsabilidad a un sistema CRM externo: Salesforce.
 
-En este contexto, Airtable funciona como un CRM liviano que permite almacenar, visualizar y gestionar la información capturada desde el formulario de donación.
+En este contexto, Salesforce permite almacenar, visualizar y gestionar la información capturada desde el formulario de donación, centralizando los datos de contactos y las oportunidades asociadas a las contribuciones realizadas.
 
-Esto implica que el modelo de datos está desacoplado del sistema de WordPress y se basa en una estructura externa gestionada mediante API.
-
----
+Esto implica que el modelo de datos está desacoplado del sistema de WordPress y se basa en una estructura externa gestionada mediante las APIs de Salesforce, permitiendo integrar la información de donantes con los procesos de seguimiento y administración de la organización.
 
 ## 6.2 Entidad principal: Donante
 
@@ -31,39 +29,51 @@ Estos campos conforman el conjunto mínimo de información necesaria para identi
 
 ---
 
-## 6.3 Estructura en Airtable
+## 6.3 Estructura en Salesforce
 
-La información se almacena en Airtable bajo una tabla única que centraliza los registros de donantes.
+La información se almacena en Salesforce utilizando objetos estándar del CRM que permiten gestionar tanto los datos de los donantes como las oportunidades de contribución.
 
-Cada registro en la tabla representa una instancia de donación potencial o contacto generado desde el formulario.
+La integración se basa principalmente en los siguientes objetos:
 
-La estructura lógica de la tabla es la siguiente:
+### Contact
 
-| Campo    | Tipo de dato     | Descripción            |
-| -------- | ---------------- | ---------------------- |
-| Nombre   | Single line text | Nombre del donante     |
-| Apellido | Single line text | Apellido del donante   |
-| DNI      | Single line text | Documento de identidad |
-| Email    | Email            | Correo electrónico     |
-| Teléfono | Phone number     | Número de contacto     |
+Cada Contact representa un donante o potencial donante registrado a través del formulario.
+
+La información mínima gestionada por el sistema incluye:
+
+|Campo|Descripción|
+|---|---|
+|Nombre|Nombre del donante|
+|Apellido|Apellido del donante|
+|DNI|Documento de identidad|
+|Email|Correo electrónico|
+|Teléfono|Número de contacto|
+
+### Opportunity
+
+Las Opportunities permiten registrar y realizar seguimiento de las contribuciones asociadas a un Contact dentro del CRM.
+
+La estructura exacta puede variar según la configuración de la organización Salesforce utilizada.
 
 ---
 
-## 6.4 Rol de Airtable como CRM
+## 6.4 Rol de Salesforce como CRM
 
-Airtable cumple el rol de sistema de gestión de relaciones con donantes (CRM liviano), permitiendo:
+Salesforce cumple el rol de sistema de gestión de relaciones con donantes (CRM), permitiendo:
 
-- Visualización centralizada de los datos recolectados.
+- Centralizar la información de contactos y contribuciones.
     
-- Filtrado y búsqueda de registros.
+- Gestionar potenciales donantes y donantes activos.
     
-- Acceso desde múltiples dispositivos.
+- Realizar seguimiento de oportunidades de donación.
     
-- Gestión operativa por parte de la ONG sin necesidad de acceso al sistema WordPress.
+- Integrar la información con los procesos institucionales de la organización.
+    
+- Acceder a la información desde múltiples dispositivos y perfiles de usuario.
     
 
-Documentación oficial de Airtable:  
-[https://airtable.com/developers/web/api/introduction](https://airtable.com/developers/web/api/introduction)
+Documentación oficial de Salesforce:  
+[https://developer.salesforce.com/](https://developer.salesforce.com/)
 
 ---
 
@@ -75,21 +85,21 @@ El flujo de almacenamiento de datos se realiza de la siguiente manera:
     
 2. El plugin procesa la información ingresada.
     
-3. Los datos del donante son enviados a la API de Airtable.
+3. Los datos del donante son enviados a Salesforce mediante las APIs correspondientes.
     
-4. Se crea un nuevo registro en la tabla correspondiente.
+4. Se crea o actualiza un Contact con la información recibida.
     
-5. La información queda disponible para su gestión por parte de la ONG.
+5. En caso de corresponder, se genera una Opportunity asociada al Contact.
     
-
+6. La información queda disponible para su gestión y seguimiento por parte de la ONG dentro del CRM.
 ---
 
 ## 6.6 Consideraciones del modelo de datos
 
-- El sistema no mantiene persistencia interna en WordPress para datos de donantes.
+- El sistema no mantiene persistencia interna en WordPress para la gestión de donantes.
     
-- Airtable actúa como única fuente de almacenamiento estructurado.
+- Salesforce actúa como fuente principal de información para contactos y oportunidades de donación.
     
-- El modelo es extensible, permitiendo agregar nuevos campos en el futuro sin modificar la lógica principal del plugin.
+- El modelo es extensible, permitiendo incorporar nuevos campos, objetos o procesos de negocio sin requerir modificaciones significativas en la arquitectura general del plugin.
     
-- La estructura actual está orientada a la identificación y contacto de donantes, no a la gestión financiera de transacciones.
+- La estructura actual está orientada a la identificación, seguimiento y gestión de donantes dentro del CRM, mientras que el procesamiento financiero de las transacciones es responsabilidad de las pasarelas de pago integradas.

@@ -14,7 +14,7 @@ El proyecto surge con el objetivo de mejorar el proceso de captación de donante
 
 La decisión de desarrollar un plugin propio para WordPress responde a la necesidad de disponer de un mayor control sobre la interfaz, la lógica del formulario y las integraciones externas, evitando depender exclusivamente de soluciones genéricas de terceros.
 
-Asimismo, la utilización de Airtable como herramienta de almacenamiento y organización permite a la ONG disponer de un sistema liviano de gestión de contactos y potenciales donantes sin necesidad de implementar una infraestructura compleja de bases de datos o sistemas CRM dedicados.
+Asimismo, la integración con Salesforce como plataforma de gestión de relaciones permite a la ONG centralizar la información de donantes y potenciales colaboradores dentro de un CRM ampliamente adoptado, facilitando el seguimiento, la organización y la administración de contactos sin necesidad de desarrollar soluciones propias de gestión de datos.
 
 ---
 
@@ -34,7 +34,7 @@ Desarrollar una plataforma modular de captación de donantes integrada en WordPr
     
 - Integrar pasarelas de pago externas.
     
-- Registrar información relevante de los donantes utilizando Airtable.
+- Registrar información relevante de los donantes utilizando Salesforce.
     
 - Facilitar futuras extensiones e integraciones mediante una arquitectura modular.
     
@@ -53,7 +53,7 @@ La solución implementada incluye:
     
 - integración con WordPress mediante un plugin propio,
     
-- almacenamiento de datos de contacto en Airtable,
+- almacenamiento de datos de contacto en Salesforce,
     
 - integración inicial con Mercado Pago,
     

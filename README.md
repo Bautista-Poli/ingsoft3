@@ -146,7 +146,7 @@ Actualmente se pueden editar desde el admin, entre otros:
 - Metricas del hero.
 - Cita del hero.
 - Titulos y bajadas del paso 1.
-- Configuracion de envio a Airtable.
+- Configuracion de envio a Salesforce.
 - Montos predefinidos.
 - Monto inicial.
 - Monto minimo.
@@ -159,7 +159,7 @@ Actualmente se pueden editar desde el admin, entre otros:
 - Sellos de confianza.
 - Links del footer.
 
-## CRM con Airtable
+## CRM con Salesforce
 
 Cuando el usuario completa el primer paso del formulario, el frontend llama al endpoint REST del plugin:
 
@@ -167,13 +167,9 @@ Cuando el usuario completa el primer paso del formulario, el frontend llama al e
 POST /wp-json/donacion/v1/guardar
 ```
 
-Si el envio a CRM esta activado desde el admin, WordPress reenvia esos datos a Airtable usando la API oficial:
+Si la integración CRM está activada desde el panel de administración, WordPress crea o actualiza un Contact en Salesforce utilizando la API REST oficial.
 
-```txt
-https://api.airtable.com/v0/{baseId}/{table}
-```
-
-La configuracion se realiza desde:
+La configuración se realiza desde:
 
 ```txt
 Donaciones MS > Datos personales a CRM
@@ -181,41 +177,52 @@ Donaciones MS > Datos personales a CRM
 
 Campos requeridos:
 
-- Activar envio a Airtable.
-- Base ID, por ejemplo `appXXXXXXXXXXXXXX`.
-- Nombre o ID de tabla, por ejemplo `Donaciones`.
-- Personal Access Token de Airtable.
-- Mapeo de columnas de Airtable para Nombre, Apellido, Email, DNI y Telefono.
+- Client ID
+    
+- Client Secret
+    
+- URL/Dominio de Login
+    
+- Credenciales de la organización Salesforce
+    
 
-La seccion incluye un boton para probar la conexion guardada con Airtable. Para que esa prueba funcione, el token debe tener permisos `data.records:write` y `data.records:read`.
+La sección incluye un botón para probar la conexión configurada con Salesforce.
 
-El token se usa server-side desde WordPress y no se expone en `window.MS_DONACIONES`.
-
-Los nombres de columnas deben coincidir exactamente con Airtable, incluyendo tildes, espacios y mayusculas. La tabla de Airtable deberia tener al menos las columnas que se configuren en el mapeo, por ejemplo:
-
-```txt
-Nombre
-Apellido
-Email
-DNI
-Telefono
-```
-
-
-Para generar el Personal Access Token, usar la guia oficial de Airtable:
+Importante:
 
 ```txt
-https://support.airtable.com/docs/creating-personal-access-tokens
+URL/Dominio de Login
 ```
 
-Scopes recomendados para este MVP:
+debe contener la URL de la organización Salesforce utilizando el dominio:
 
 ```txt
-data.records:write
-data.records:read
+https://xxxxx.my.salesforce.com
 ```
 
-Ademas, el token debe tener acceso al recurso/base donde se encuentra la tabla.
+y no el dominio:
+
+```txt
+lightning.force.com
+```
+
+Las credenciales se utilizan exclusivamente desde el backend de WordPress y nunca son expuestas al frontend.
+
+La guía completa de configuración se encuentra en:
+
+```txt
+SALESFORCE_SETUP.md
+```
+
+### Flujo CRM
+
+Al completar el formulario:
+
+1. Se crea o actualiza un Contact en Salesforce.
+    
+2. Se almacena la información del potencial donante.
+    
+3. Cuando se inicia una donación mediante Mercado Pago, el sistema puede crear una Opportunity asociada al Contact correspondiente.
 
 ## REST API
 
@@ -250,7 +257,7 @@ Respuesta esperada:
     "enabled": true,
     "success": true,
     "status": 200,
-    "message": "Datos enviados a Airtable."
+    "message": "Datos enviados a Salesforce."
   }
 }
 ```
@@ -281,6 +288,8 @@ Campos requeridos:
 El Access Token se usa server-side desde WordPress y no se expone en `window.MS_DONACIONES`.
 
 El endpoint devuelve `init_point` y el frontend redirige al donante a Mercado Pago.
+
+Cuando el flujo de donación continúa correctamente, el sistema puede registrar una Opportunity en Salesforce asociada al Contact previamente creado, permitiendo realizar seguimiento de las contribuciones dentro del CRM.
 
 La seccion incluye un boton para probar la conexion guardada con Mercado Pago. Si la conexion no esta validada, la opcion Mercado Pago aparece deshabilitada en el formulario con el texto "No disponible por el momento".
 
@@ -317,7 +326,7 @@ como variable global:
 window.MS_DONACIONES
 ```
 
-Las credenciales de Airtable no se pasan al frontend.
+Las credenciales de Salesforce y Mercado Pago no se pasan al frontend.
 
 ### `includes/class-admin.php`
 
@@ -333,7 +342,7 @@ Define el endpoint REST:
 /wp-json/donacion/v1/guardar
 ```
 
-Sanitiza los datos recibidos y, si esta activado, los envia a Airtable.
+Sanitiza los datos recibidos y, si la integración CRM está activada, los envía a Salesforce.
 
 ### `includes/class-about.php`
 
