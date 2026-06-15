@@ -9,7 +9,7 @@ class MS_Donaciones_Admin {
     public static function init() {
         add_action('admin_menu', [__CLASS__, 'add_menu_page']);
         add_action('admin_init', [__CLASS__, 'register_settings']);
-        add_action('wp_ajax_ms_donaciones_test_airtable', [__CLASS__, 'ajax_test_airtable']);
+        add_action('wp_ajax_ms_donaciones_test_salesforce', [__CLASS__, 'ajax_test_salesforce']);
         add_action('wp_ajax_ms_donaciones_test_mercadopago', [__CLASS__, 'ajax_test_mercadopago']);
     }
 
@@ -66,6 +66,17 @@ class MS_Donaciones_Admin {
                 continue;
             }
 
+            if ($key === 'sf_login_url') {
+                $sanitized = self::sanitize_sf_login_url($value);
+                if (($output[$key] ?? '') !== $sanitized) {
+                    $output['sf_connection_status'] = 'unknown';
+                    $output['sf_connection_message'] = '';
+                    delete_transient('ms_donaciones_sf_auth');
+                }
+                $output[$key] = $sanitized;
+                continue;
+            }
+
             if (str_ends_with($key, '_url') || $key === 'foto_url') {
                 $value = trim((string) $value);
                 $output[$key] = str_starts_with($value, '/') || str_starts_with($value, '#')
@@ -84,8 +95,14 @@ class MS_Donaciones_Admin {
                 continue;
             }
 
-            if ($key === 'crm_enabled') {
-                $output[$key] = !empty($value) ? '1' : '0';
+            if (in_array($key, ['sf_enabled', 'sf_sandbox'], true)) {
+                $sanitized = !empty($value) ? '1' : '0';
+                if (($output[$key] ?? '') !== $sanitized) {
+                    $output['sf_connection_status'] = 'unknown';
+                    $output['sf_connection_message'] = '';
+                    delete_transient('ms_donaciones_sf_auth');
+                }
+                $output[$key] = $sanitized;
                 continue;
             }
 
@@ -95,11 +112,12 @@ class MS_Donaciones_Admin {
                 continue;
             }
 
-            if (in_array($key, ['airtable_base_id', 'airtable_table_name', 'airtable_token'], true)) {
+            if (in_array($key, ['sf_consumer_key', 'sf_consumer_secret', 'sf_username', 'sf_password_token'], true)) {
                 $sanitized = sanitize_text_field($value);
                 if (($output[$key] ?? '') !== $sanitized) {
-                    $output['airtable_connection_status'] = 'unknown';
-                    $output['airtable_connection_message'] = '';
+                    $output['sf_connection_status'] = 'unknown';
+                    $output['sf_connection_message'] = '';
+                    delete_transient('ms_donaciones_sf_auth');
                 }
                 $output[$key] = $sanitized;
                 continue;
@@ -258,28 +276,35 @@ class MS_Donaciones_Admin {
                 'menu' => 'Datos personales a CRM',
                 'step' => 'Paso 1',
                 'title' => 'Datos personales a CRM',
-                'description' => 'Configuracion del envio automatico de los datos del primer paso.',
+                'description' => 'Configuracion del envio automatico de los datos del primer paso a Salesforce (NPSP).',
                 'fields' => [
-                    'crm_enabled' => ['Activar envio a Airtable', 'checkbox'],
-                    'airtable_base_id' => ['Base ID', 'text', 'Ejemplo: appXXXXXXXXXXXXXX. Lo encontrás en el link de Airtable.'],
-                    'airtable_table_name' => ['Tabla', 'text', 'Nombre o ID de la tabla donde se crearan los registros. Ejemplo: tblwnQntT8oGh70PZ o "leads".'],
-                    'airtable_token' => ['Personal Access Token', 'password', 'Se envia server-side desde WordPress, no queda expuesto en el navegador.'],
-                    'airtable_field_nombre' => ['Columna Nombre', 'text', 'Debe coincidir exactamente con Airtable.'],
-                    'airtable_field_apellido' => ['Columna Apellido', 'text', 'Debe coincidir exactamente con Airtable.'],
-                    'airtable_field_email' => ['Columna Email', 'text', 'Debe coincidir exactamente con Airtable.'],
-                    'airtable_field_dni' => ['Columna DNI', 'text', 'Debe coincidir exactamente con Airtable.'],
-                    'airtable_field_telefono' => ['Columna Telefono', 'text', 'Debe coincidir exactamente con Airtable. Dejalo vacio si no existe.'],
+                    'sf_enabled'         => ['Activar envio a Salesforce', 'checkbox'],
+                    'sf_sandbox'         => ['Usar sandbox de Salesforce', 'checkbox'],
+                    'sf_login_url'       => ['URL/Dominio de login', 'text', 'Opcional. Usa el My Domain de Salesforce si aplica. Ej: https://tu-dominio.my.salesforce.com. Si lo dejas vacio usa produccion o sandbox.'],
+                    'sf_consumer_key'    => ['Consumer Key', 'password', 'Consumer Key de la Connected App en Salesforce.'],
+                    'sf_consumer_secret' => ['Consumer Secret', 'password', 'Consumer Secret de la Connected App en Salesforce.'],
+                    'sf_username'        => ['Usuario de Salesforce', 'text', 'Email de acceso a Salesforce.'],
+                    'sf_password_token'  => ['Contraseña + Security Token', 'password', 'Concatena tu contraseña con el Security Token sin espacios. Ej: MiPassword123AbCdEfGhIjK.'],
+                    'sf_field_firstname' => ['API Name: Nombre (Contact)', 'text', 'Por defecto: FirstName. Cambialo solo si el campo es custom.'],
+                    'sf_field_lastname'  => ['API Name: Apellido (Contact)', 'text', 'Por defecto: LastName.'],
+                    'sf_field_email'     => ['API Name: Email (Contact)', 'text', 'Por defecto: Email.'],
+                    'sf_field_phone'     => ['API Name: Telefono (Contact)', 'text', 'Por defecto: MobilePhone.'],
+                    'sf_field_dni'       => ['API Name: DNI (Contact)', 'text', 'API Name del campo custom de DNI. Ej: npe01__Numero_de_Documento__c.'],
+                    'sf_opp_stage'       => ['Stage de Oportunidad', 'text', 'Stage name para donaciones aprobadas por Mercado Pago. Por defecto: Closed Won.'],
                 ],
                 'help' => [
-                    'title' => 'Cómo generar el token de Airtable',
+                    'title' => 'Como conectar WordPress con Salesforce',
                     'items' => [
-                        'En Airtable, creá un Personal Access Token.',
-                        'Agregá los scopes data.records:write y data.records:read.',
-                        'En recursos, seleccioná la base donde está la tabla de donantes.',
-                        'Los nombres de columnas deben coincidir EXACTO con Airtable. 🚨',
+                        'En Salesforce → Setup → App Manager → New Connected App.',
+                        'Habilita OAuth Settings. URL de callback: cualquier URL de tu sitio.',
+                        'Scopes requeridos: api, refresh_token.',
+                        'Copia Consumer Key y Consumer Secret al panel de arriba.',
+                        'Si tu org exige My Domain, completa URL/Dominio de login con el dominio exacto de Salesforce.',
+                        'Concatena tu contraseña con tu Security Token (sin espacio) en el campo Contraseña + Security Token.',
+                        'El API Name del campo DNI debe incluir __c si es un campo custom. Buscalo en Setup → Object Manager → Contact → Fields.',
                     ],
-                    'link' => 'https://support.airtable.com/docs/creating-personal-access-tokens',
-                    'link_label' => 'Ver guia oficial de Airtable',
+                    'link' => 'https://help.salesforce.com/s/articleView?id=sf.connected_app_create.htm',
+                    'link_label' => 'Ver guia oficial de Salesforce',
                 ],
             ],
             'montos' => [
@@ -307,6 +332,7 @@ class MS_Donaciones_Admin {
                 'description' => 'Configuracion server-side para crear preferencias de Checkout Pro.',
                 'fields' => [
                     'mp_access_token' => ['Access Token', 'password', 'Puede ser TEST-... para pruebas o APP_USR-... para produccion. No se expone en el navegador.'],
+                    'mp_webhook_url'  => ['URL de Webhook', 'url', 'URL publica para notificaciones de pago. En produccion: https://tu-sitio.com/wp-json/donacion/v1/webhook. En dev: URL de ngrok.'],
                     'mp_item_title' => ['Título del item'],
                     'mp_statement_descriptor' => ['Descriptor en resumen'],
                     'mp_success_url' => ['URL exito', 'url'],
@@ -577,11 +603,11 @@ class MS_Donaciones_Admin {
     private static function render_connection_panel($current_slug, $labels) {
         $configs = [
             'crm' => [
-                'action' => 'ms_donaciones_test_airtable',
-                'label' => 'Probar conexion con Airtable',
-                'status_key' => 'airtable_connection_status',
-                'message_key' => 'airtable_connection_message',
-                'hint' => 'Guarda los cambios antes de probar. La prueba lista 1 registro de la tabla configurada.',
+                'action' => 'ms_donaciones_test_salesforce',
+                'label' => 'Probar conexion con Salesforce',
+                'status_key' => 'sf_connection_status',
+                'message_key' => 'sf_connection_message',
+                'hint' => 'Guarda los cambios antes de probar. La prueba verifica las credenciales OAuth contra Salesforce.',
             ],
             'mercadopago' => [
                 'action' => 'ms_donaciones_test_mercadopago',
@@ -664,48 +690,54 @@ class MS_Donaciones_Admin {
         return 'Conexion no verificada.';
     }
 
-    public static function ajax_test_airtable() {
+    public static function ajax_test_salesforce() {
         self::assert_ajax_permissions();
 
-        $labels = self::labels_with_defaults();
-        $base_id = sanitize_text_field($labels['airtable_base_id'] ?? '');
-        $table_name = sanitize_text_field($labels['airtable_table_name'] ?? '');
-        $token = sanitize_text_field($labels['airtable_token'] ?? '');
+        $labels          = self::labels_with_defaults();
+        $consumer_key    = sanitize_text_field($labels['sf_consumer_key'] ?? '');
+        $consumer_secret = sanitize_text_field($labels['sf_consumer_secret'] ?? '');
+        $sandbox         = ($labels['sf_sandbox'] ?? '0') === '1';
 
-        if (!$base_id || !$table_name || !$token) {
-            self::save_connection_status('airtable', 'invalid', 'Falta Base ID, tabla o token.');
-            wp_send_json_error(['message' => 'Falta Base ID, tabla o token.']);
+        if (!$consumer_key || !$consumer_secret) {
+            self::save_connection_status('sf', 'invalid', 'Faltan Consumer Key y/o Consumer Secret.');
+            wp_send_json_error(['message' => 'Faltan Consumer Key y/o Consumer Secret.']);
         }
 
-        $endpoint = sprintf(
-            'https://api.airtable.com/v0/%s/%s?maxRecords=1',
-            rawurlencode($base_id),
-            rawurlencode($table_name)
-        );
-        $response = wp_remote_get($endpoint, [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $token,
+        $auth_url = self::salesforce_auth_url($labels['sf_login_url'] ?? '', $sandbox);
+
+        $response = wp_remote_post($auth_url, [
+            'body' => [
+                'grant_type'    => 'client_credentials',
+                'client_id'     => $consumer_key,
+                'client_secret' => $consumer_secret,
             ],
-            'timeout' => 12,
+            'timeout' => 15,
         ]);
 
         if (is_wp_error($response)) {
             $message = $response->get_error_message();
-            self::save_connection_status('airtable', 'invalid', $message);
+            self::save_connection_status('sf', 'invalid', $message);
             wp_send_json_error(['message' => $message]);
         }
 
         $status_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
+        $body        = json_decode(wp_remote_retrieve_body($response), true);
 
-        if ($status_code >= 200 && $status_code < 300) {
-            self::save_connection_status('airtable', 'valid', 'Conexión válida con Airtable.');
-            wp_send_json_success(['message' => 'Conexión válida con Airtable.']);
+        if ($status_code === 200 && !empty($body['access_token'])) {
+            $instance = $body['instance_url'] ?? '';
+            $message  = 'Conexion valida con Salesforce' . ($instance ? ' (' . $instance . ')' : '') . '.';
+            delete_transient('ms_donaciones_sf_auth');
+            self::save_connection_status('sf', 'valid', $message);
+            wp_send_json_success(['message' => $message]);
         }
 
-        $message = self::extract_api_error($body) ?: 'Airtable respondio con HTTP ' . $status_code . '. Verifica token, scopes data.records:read/write, Base ID y tabla.';
-        self::save_connection_status('airtable', 'invalid', $message);
-        wp_send_json_error(['message' => $message, 'status' => $status_code]);
+        $error   = $body['error_description'] ?? $body['error'] ?? ('HTTP ' . $status_code);
+        if (stripos($error, 'authentication failure') !== false || stripos($error, 'invalid_client') !== false) {
+            $error .= '. Revisa Consumer Key, Consumer Secret y que la Connected App tenga un usuario en Ejecutar como (OAuth Policies).';
+        }
+        $message = 'Error autenticando con Salesforce: ' . $error;
+        self::save_connection_status('sf', 'invalid', $message);
+        wp_send_json_error(['message' => $message]);
     }
 
     public static function ajax_test_mercadopago() {
@@ -760,9 +792,39 @@ class MS_Donaciones_Admin {
         );
     }
 
+    private static function sanitize_sf_login_url($value) {
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return '';
+        }
+
+        if (!preg_match('#^https?://#i', $value)) {
+            $value = 'https://' . $value;
+        }
+
+        $parts = wp_parse_url($value);
+        if (empty($parts['host'])) {
+            return '';
+        }
+
+        $host = strtolower($parts['host']);
+        return esc_url_raw('https://' . $host);
+    }
+
+    private static function salesforce_auth_url($login_url, $sandbox) {
+        $login_url = self::sanitize_sf_login_url($login_url);
+
+        if (!$login_url) {
+            $login_url = $sandbox ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
+        }
+
+        return rtrim($login_url, '/') . '/services/oauth2/token';
+    }
+
     private static function save_connection_status($service, $status, $message) {
         $labels = self::labels_with_defaults();
-        $prefix = $service === 'mp' ? 'mp' : 'airtable';
+        $prefix = $service === 'mp' ? 'mp' : 'sf';
         $labels[$prefix . '_connection_status'] = $status;
         $labels[$prefix . '_connection_message'] = sanitize_text_field($message);
 
