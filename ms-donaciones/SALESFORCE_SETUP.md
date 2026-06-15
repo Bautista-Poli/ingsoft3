@@ -140,8 +140,11 @@ La URL pública aparece en la terminal. Ejemplo: `https://xyz.ngrok-free.dev`
 
 En el portal de MP → tu app → **Webhooks** → **Configurar notificaciones**:
 - **URL para prueba**: `https://xyz.ngrok-free.dev/wp-json/donacion/v1/webhook`
-- **Eventos**: tildá **Pagos**
+- **Eventos**: tildá **Pagos** (y **Planes y suscripciones** si vas a usar donaciones mensuales)
 - Guardá
+
+> 💡 Para el feature de **donaciones mensuales (suscripciones)**, ver
+> **[PAGOS_MENSUALES_SETUP.md](PAGOS_MENSUALES_SETUP.md)**.
 
 ### Paso 3 — Configurar WordPress
 
