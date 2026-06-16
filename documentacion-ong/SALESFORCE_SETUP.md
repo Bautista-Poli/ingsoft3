@@ -187,3 +187,9 @@ ORDER BY CreatedDate DESC
 | `authentication failure` | Consumer Key o Secret incorrectos, o flujo de credenciales sin usuario asignado |
 | Opportunity no se crea | ngrok no está corriendo o la URL de webhook no está configurada en WordPress |
 | Opportunity duplicada | Ya corregido — el transient se guarda al inicio del procesamiento |
+
+> **Nota — robustez del pago único:** además del webhook, el pago único crea la Opportunity por
+> el **retorno del checkout** (`back_urls.success` apunta al endpoint `/wp-json/donacion/v1/retorno-pago`,
+> con `auto_return` para que MP redirija solo). Así, si el webhook no llega (suele pasar en sandbox),
+> la Opportunity se crea igual cuando el donante vuelve. Es idempotente: si después llega el webhook,
+> el lock evita duplicar. Requiere que la **URL de Webhook** del plugin tenga el host público correcto.
