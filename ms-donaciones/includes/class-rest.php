@@ -35,6 +35,12 @@ class MS_Donaciones_REST {
             'permission_callback' => '__return_true',
         ]);
 
+        register_rest_route('donacion/v1', '/retorno-pago', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'retorno_pago'],
+            'permission_callback' => '__return_true',
+        ]);
+
         register_rest_route('donacion/v1', '/webhook', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'webhook_mercado_pago'],
@@ -70,6 +76,15 @@ class MS_Donaciones_REST {
         }
 
         $external_reference = 'donacion-' . time() . '-' . wp_generate_password(6, false, false);
+
+        // On success, send the donor back through our own return endpoint so we can create the Opportunity
+        // the moment they come back, without depending on the (sometimes-delayed) webhook. It then redirects
+        // to the configured thank-you page. Falls back to the plain success URL if no public host is set.
+        $success_back = self::build_public_rest_url($settings, 'retorno-pago');
+        if (!$success_back) {
+            $success_back = esc_url_raw($settings['mp_success_url'] ?? '');
+        }
+
         $body = [
             'items' => [
                 [
@@ -89,10 +104,11 @@ class MS_Donaciones_REST {
                 ],
             ],
             'back_urls' => [
-                'success' => esc_url_raw($settings['mp_success_url'] ?? ''),
+                'success' => $success_back,
                 'failure' => esc_url_raw($settings['mp_failure_url'] ?? ''),
                 'pending' => esc_url_raw($settings['mp_pending_url'] ?? ''),
             ],
+            'auto_return'          => 'approved',
             'statement_descriptor' => sanitize_text_field($settings['mp_statement_descriptor'] ?? 'MODULO SANITARIO'),
             'external_reference'   => $external_reference,
             'notification_url'     => esc_url_raw($settings['mp_webhook_url'] ?? ''),
@@ -559,6 +575,48 @@ class MS_Donaciones_REST {
         // Use wp_redirect (not wp_safe_redirect): the success URL is an admin-configured external
         // domain (e.g. the org's thank-you page), which wp_safe_redirect would reject and bounce
         // back to the local site. The URL is trusted config, not user input, so this is safe.
+        wp_redirect($success_url);
+        exit;
+    }
+
+    /**
+     * Donor returns here from the Mercado Pago Checkout Pro (single payment) success back_url.
+     * Verifies the payment is approved and creates the Salesforce Opportunity right away, without
+     * depending on the webhook. Idempotent: the lock in handle_approved_payment prevents a duplicate
+     * if the webhook also fires.
+     */
+    public static function retorno_pago($request) {
+        $payment_id = sanitize_text_field(
+            $request->get_param('payment_id')
+            ?? $request->get_param('collection_id')
+            ?? ''
+        );
+        $settings     = array_merge(
+            MS_Donaciones_Shortcodes::default_labels(),
+            get_option('ms_donaciones_labels', [])
+        );
+        $access_token = sanitize_text_field($settings['mp_access_token'] ?? '');
+        $success_url  = esc_url_raw($settings['mp_success_url'] ?? '') ?: home_url('/');
+
+        if ($payment_id && $access_token) {
+            $response = wp_remote_get('https://api.mercadopago.com/v1/payments/' . rawurlencode($payment_id), [
+                'headers' => ['Authorization' => 'Bearer ' . $access_token],
+                'timeout' => 15,
+            ]);
+
+            if (!is_wp_error($response)) {
+                $payment            = json_decode(wp_remote_retrieve_body($response), true);
+                $status             = $payment['status'] ?? 'unknown';
+                $external_reference = sanitize_text_field($payment['external_reference'] ?? '');
+
+                error_log('MS Donaciones - Retorno pago ' . $payment_id . ' status: ' . $status);
+
+                if ($status === 'approved' && $external_reference) {
+                    self::handle_approved_payment($settings, $payment, $external_reference);
+                }
+            }
+        }
+
         wp_redirect($success_url);
         exit;
     }
