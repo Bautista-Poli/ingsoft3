@@ -265,6 +265,7 @@ _app.textContent = `
 const { useState, useEffect } = React;
 
 const CONFIG = window.MS_DONACIONES?.labels || {};
+const ASSETS_URL = window.MS_DONACIONES?.assetsUrl || "";
 const cfg = (key, fallback = "") => CONFIG[key] || fallback;
 const cfgNum = (key, fallback = 0) => {
   const value = parseInt(CONFIG[key], 10);
@@ -300,7 +301,7 @@ const Ic = {
   Back:   (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M19 12H5"/><path d="m11 19-7-7 7-7"/></svg>,
   Heart:  (p) => <svg viewBox="0 0 24 24" fill="currentColor" {...p}><path d="M12 21s-7.5-4.7-9.5-9.3C1 7.8 3.6 4 7.4 4c2 0 3.5 1.1 4.6 2.7C13.1 5.1 14.6 4 16.6 4 20.4 4 23 7.8 21.5 11.7 19.5 16.3 12 21 12 21z"/></svg>,
   Spark:  (p) => <svg viewBox="0 0 24 24" fill="currentColor" {...p}><path d="M12 2 13.8 9 21 11l-7.2 2L12 20l-1.8-7L3 11l7.2-2L12 2z"/></svg>,
-  MP:     (p) => <svg viewBox="0 0 64 44" fill="none" {...p}><ellipse cx="32" cy="22" rx="30" ry="20" fill="#17BCEB" stroke="#09008A" strokeWidth="3"/><path d="M4 20c8 1.4 14.7 4.4 20.4 8.4M60 20c-8 1.4-14.7 4.4-20.4 8.4" stroke="#09008A" strokeWidth="3" strokeLinecap="round"/><path d="M18.5 22.5 27 14c4.5-4.2 10.7-4.1 16.5 1.2l5.2 4.7c-4.3.7-8.1.2-11.2-1.4l-5.8-3.2-7.9 7.1c-2.8 2.4-7.5 1.5-5.3.1Z" fill="#fff" stroke="#09008A" strokeWidth="2.4" strokeLinejoin="round"/><path d="M15 23.6c2-2.4 5.9-1.5 6.2 1.5 2-2.2 5.9-.9 5.9 2.3 2-1.4 5.3-.2 5.4 2.6 2.2-.8 4.9.7 4.4 3.2-.8 3.9-7.7 1.3-12.6-1.1-3.6-1.8-7.1-3.4-9.2-5.7-.7-.8-.7-1.9-.1-2.8Z" fill="#fff" stroke="#09008A" strokeWidth="2.4" strokeLinejoin="round"/><path d="M31.3 23.6 40 31.8M36 22.7l7.1 6.6" stroke="#09008A" strokeWidth="2.4" strokeLinecap="round"/></svg>,
+  MP:     ({ width = 62, height = 44, ...p } = {}) => <img src={ASSETS_URL + "MP_RGB_HANDSHAKE_color_vertical.svg"} alt="" width={width} height={height} style={{display:"block", objectFit:"contain"}} {...p}/>,
   Bank:   (p) => <svg viewBox="0 0 48 48" fill="none" {...p}><path d="M24 6 6 16h36L24 6z" fill="#0B6FB8"/><rect x="9" y="18" width="4" height="16" fill="#0B6FB8"/><rect x="17" y="18" width="4" height="16" fill="#0B6FB8"/><rect x="27" y="18" width="4" height="16" fill="#0B6FB8"/><rect x="35" y="18" width="4" height="16" fill="#0B6FB8"/><rect x="6" y="36" width="36" height="4" rx="1" fill="#0B6FB8"/></svg>,
 };
 
@@ -546,7 +547,7 @@ function Step2({ data, amount, setAmount, frequency, setFrequency, onBack, onSel
   };
 
   const allMethods = [
-    { id:"mp",    name:cfg("method_mp_name", "Mercado Pago"), desc:cfg("method_mp_desc", "Tarjeta, dinero en cuenta o efectivo en Pago Fácil/Rapipago."), tags:cfgList("method_mp_tags", ["Recomendado","Tarjetas y efectivo"]), icon:<Ic.MP width="54" height="40"/>, color:"#00B1EA" },
+    { id:"mp",    name:cfg("method_mp_name", "Mercado Pago"), desc:cfg("method_mp_desc", "Tarjeta, dinero en cuenta o efectivo en Pago Fácil/Rapipago."), tags:cfgList("method_mp_tags", ["Recomendado","Tarjetas y efectivo"]), icon:<Ic.MP width="62" height="44"/>, color:"#00B1EA" },
     { id:"bank",  name:cfg("method_bank_name", "Transferencia bancaria"), desc:cfg("method_bank_desc", "Te mostramos los datos de la cuenta para hacer la transferencia."), tags:cfgList("method_bank_tags", ["CBU/Alias"]), icon:<Ic.Bank width="48" height="48"/>, color:"#0B6FB8" },
   ];
   const methods = frequency === "mensual" ? allMethods.filter(m => m.id === "mp") : allMethods;
@@ -627,7 +628,7 @@ function Step3({ data, amount, frequency, method, onBack, onRestart, guardarEnFo
   const [error, setError] = useState(null);
 
   const map = {
-    mp:    { name:cfg("method_mp_name", "Mercado Pago"), color:"#00B1EA", icon:<Ic.MP    width="40" height="40"/> },
+    mp:    { name:cfg("method_mp_name", "Mercado Pago"), color:"#00B1EA", icon:<Ic.MP    width="58" height="42"/> },
     bank:  { name:cfg("method_bank_name", "Transferencia bancaria"), color:"#0B6FB8", icon:<Ic.Bank  width="40" height="40"/> },
   };
   const m = map[method] || map.mp;

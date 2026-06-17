@@ -67,6 +67,7 @@ class MS_Donaciones_Shortcodes {
 
         wp_localize_script('ms-donaciones-form', 'MS_DONACIONES', [
             'restUrl' => esc_url_raw(rest_url('donacion/v1')),
+            'assetsUrl' => esc_url_raw(MS_DONACIONES_URL . 'assets/'),
             'labels'  => $frontend_labels,
         ]);
     }
