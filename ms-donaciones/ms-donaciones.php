@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MS Donaciones
  * Description: Formulario de donaciones para Módulo Sanitario.
- * Version: 0.1.16
+ * Version: 1.0.0
  * Author: Equipo Ingeniería en Informática UCA
  * Text Domain: ms-donaciones
  * Requires at least: 6.0
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 
 define('MS_DONACIONES_PATH', plugin_dir_path(__FILE__));
 define('MS_DONACIONES_URL', plugin_dir_url(__FILE__));
-define('MS_DONACIONES_VERSION', '0.1.16');
+define('MS_DONACIONES_VERSION', '1.0.0');
 
 require_once MS_DONACIONES_PATH . 'includes/class-shortcodes.php';
 require_once MS_DONACIONES_PATH . 'includes/class-rest.php';

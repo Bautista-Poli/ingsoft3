@@ -662,11 +662,15 @@ class MS_Donaciones_REST {
                 'message' => 'CRM no disparado para este evento.',
             ];
 
+        if (($crm_result['success'] ?? null) === false) {
+            error_log('MS Donaciones - CRM error interno: ' . wp_json_encode($crm_result));
+        }
+
         return new WP_REST_Response([
             'success'    => true,
             'message'    => 'Datos recibidos correctamente',
             'data'       => $data,
-            'crm_result' => $crm_result,
+            'crm_result' => self::public_crm_result($crm_result),
         ], 200);
     }
 
@@ -698,6 +702,16 @@ class MS_Donaciones_REST {
         }
 
         return self::sf_upsert_contact($auth, $settings, $data);
+    }
+
+    private static function public_crm_result($crm_result) {
+        return [
+            'enabled' => (bool) ($crm_result['enabled'] ?? false),
+            'success' => $crm_result['success'] ?? null,
+            'message' => (($crm_result['success'] ?? null) === false)
+                ? 'No pudimos guardar tus datos. Intentá de nuevo.'
+                : 'Datos recibidos correctamente.',
+        ];
     }
 
     private static function get_sf_auth($settings) {

@@ -55,15 +55,12 @@ class MS_Donaciones_Shortcodes {
         );
 
         $frontend_labels = $labels;
+        foreach (array_keys($frontend_labels) as $key) {
+            if (str_starts_with($key, 'sf_')) {
+                unset($frontend_labels[$key]);
+            }
+        }
         unset(
-            $frontend_labels['sf_enabled'],
-            $frontend_labels['sf_sandbox'],
-            $frontend_labels['sf_login_url'],
-            $frontend_labels['sf_consumer_key'],
-            $frontend_labels['sf_consumer_secret'],
-            $frontend_labels['sf_username'],
-            $frontend_labels['sf_password_token'],
-            $frontend_labels['sf_connection_message'],
             $frontend_labels['mp_access_token'],
             $frontend_labels['mp_connection_message']
         );
@@ -126,11 +123,12 @@ class MS_Donaciones_Shortcodes {
             'step1_lede' => 'Cada donación es una familia que deja de defecar al aire libre.',
             'saved_banner_text' => 'Tus datos están guardados. Cuando quieras, completá tu donación.',
             'step1_impact_text' => 'Con tu donación, una familia accede a un baño digno por primera vez.',
-            'email_hint' => 'Te enviaremos el comprobante.',
+            'email_hint' => 'Lo usamos para identificar tu donación.',
             'dni_hint' => 'Requerido por Mercado Pago para identificar el pago.',
             'telefono_hint' => 'Solo si querés que te contactemos.',
             'step1_button' => 'Continuar',
             'step1_reassure' => 'Tus datos están protegidos. No los compartimos con terceros.',
+            'step1_save_error' => 'No pudimos guardar tus datos. Intentá de nuevo.',
             'amount_presets' => '1500,5000,15000,50000',
             'default_amount' => '5000',
             'min_amount' => '100',
@@ -151,13 +149,7 @@ class MS_Donaciones_Shortcodes {
             'methods_title' => 'Método de pago',
             'method_mp_name' => 'Mercado Pago',
             'method_mp_desc' => 'Tarjeta, dinero en cuenta o efectivo en Pago Fácil/Rapipago.',
-            'method_mp_tags' => 'Recomendado,Sin comisión extra',
-            'method_local_name' => 'Tarjeta local (Argentina)',
-            'method_local_desc' => 'Crédito o débito emitida en Argentina. Hasta 3 cuotas sin interés.',
-            'method_local_tags' => 'Crédito y débito',
-            'method_intl_name' => 'Tarjeta internacional',
-            'method_intl_desc' => 'Para donantes desde el exterior. Procesado en USD.',
-            'method_intl_tags' => 'USD,Visa · Master · Amex',
+            'method_mp_tags' => 'Recomendado,Tarjetas y efectivo',
             'method_bank_name' => 'Transferencia bancaria',
             'method_bank_desc' => 'Te mostramos los datos de la cuenta para hacer la transferencia.',
             'method_bank_tags' => 'CBU/Alias',
@@ -188,8 +180,8 @@ class MS_Donaciones_Shortcodes {
             'restart_button' => 'Hacer otra donación',
             'modal_title_prefix' => '¡Listo,',
             'modal_title_suffix' => '! Guardamos tus datos.',
-            'modal_lede_prefix' => 'Te enviamos un correo a',
-            'modal_lede_suffix' => 'para que puedas retomar tu donación cuando quieras.',
+            'modal_lede_prefix' => 'Email registrado:',
+            'modal_lede_suffix' => '',
             'modal_card_title' => '¿Querés donar ahora?',
             'modal_card_text' => 'Te lleva 1 minuto y tu aporte se convierte hoy mismo en materiales para construir un baño digno.',
             'modal_donate_now' => 'Sí, donar ahora',

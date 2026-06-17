@@ -300,9 +300,7 @@ const Ic = {
   Back:   (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M19 12H5"/><path d="m11 19-7-7 7-7"/></svg>,
   Heart:  (p) => <svg viewBox="0 0 24 24" fill="currentColor" {...p}><path d="M12 21s-7.5-4.7-9.5-9.3C1 7.8 3.6 4 7.4 4c2 0 3.5 1.1 4.6 2.7C13.1 5.1 14.6 4 16.6 4 20.4 4 23 7.8 21.5 11.7 19.5 16.3 12 21 12 21z"/></svg>,
   Spark:  (p) => <svg viewBox="0 0 24 24" fill="currentColor" {...p}><path d="M12 2 13.8 9 21 11l-7.2 2L12 20l-1.8-7L3 11l7.2-2L12 2z"/></svg>,
-  MP:     (p) => <svg viewBox="0 0 48 48" fill="none" {...p}><rect x="4" y="12" width="40" height="24" rx="6" fill="#00B1EA"/><path d="M14 24c4-6 12-6 16 0" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"/><circle cx="22" cy="24" r="2.5" fill="#fff"/></svg>,
-  CardL:  (p) => <svg viewBox="0 0 48 48" fill="none" {...p}><rect x="4" y="10" width="40" height="28" rx="5" fill="#0B6FB8"/><rect x="4" y="16" width="40" height="5" fill="#08527d"/><rect x="9" y="27" width="10" height="3" rx="1" fill="#fff" opacity=".9"/><circle cx="36" cy="31" r="3.5" fill="#F26B5C"/><circle cx="40" cy="31" r="3.5" fill="#FFC857" opacity=".8"/></svg>,
-  CardI:  (p) => <svg viewBox="0 0 48 48" fill="none" {...p}><circle cx="24" cy="24" r="18" fill="#1F3A5F"/><ellipse cx="24" cy="24" rx="8" ry="18" stroke="#fff" strokeWidth="1.5" fill="none"/><path d="M6 24h36M9 16h30M9 32h30" stroke="#fff" strokeWidth="1.5"/></svg>,
+  MP:     (p) => <svg viewBox="0 0 64 44" fill="none" {...p}><ellipse cx="32" cy="22" rx="30" ry="20" fill="#17BCEB" stroke="#09008A" strokeWidth="3"/><path d="M4 20c8 1.4 14.7 4.4 20.4 8.4M60 20c-8 1.4-14.7 4.4-20.4 8.4" stroke="#09008A" strokeWidth="3" strokeLinecap="round"/><path d="M18.5 22.5 27 14c4.5-4.2 10.7-4.1 16.5 1.2l5.2 4.7c-4.3.7-8.1.2-11.2-1.4l-5.8-3.2-7.9 7.1c-2.8 2.4-7.5 1.5-5.3.1Z" fill="#fff" stroke="#09008A" strokeWidth="2.4" strokeLinejoin="round"/><path d="M15 23.6c2-2.4 5.9-1.5 6.2 1.5 2-2.2 5.9-.9 5.9 2.3 2-1.4 5.3-.2 5.4 2.6 2.2-.8 4.9.7 4.4 3.2-.8 3.9-7.7 1.3-12.6-1.1-3.6-1.8-7.1-3.4-9.2-5.7-.7-.8-.7-1.9-.1-2.8Z" fill="#fff" stroke="#09008A" strokeWidth="2.4" strokeLinejoin="round"/><path d="M31.3 23.6 40 31.8M36 22.7l7.1 6.6" stroke="#09008A" strokeWidth="2.4" strokeLinecap="round"/></svg>,
   Bank:   (p) => <svg viewBox="0 0 48 48" fill="none" {...p}><path d="M24 6 6 16h36L24 6z" fill="#0B6FB8"/><rect x="9" y="18" width="4" height="16" fill="#0B6FB8"/><rect x="17" y="18" width="4" height="16" fill="#0B6FB8"/><rect x="27" y="18" width="4" height="16" fill="#0B6FB8"/><rect x="35" y="18" width="4" height="16" fill="#0B6FB8"/><rect x="6" y="36" width="36" height="4" rx="1" fill="#0B6FB8"/></svg>,
 };
 
@@ -476,7 +474,7 @@ function Step1({ data, setData, onNext, savedForLater }) {
       try {
         await onNext();
       } catch (err) {
-        setSubmitError(err?.message || "No pudimos guardar tus datos. Intentá de nuevo.");
+        setSubmitError(cfg("step1_save_error", "No pudimos guardar tus datos. Intentá de nuevo."));
       } finally {
         setSubmitting(false);
       }
@@ -522,7 +520,7 @@ function Step1({ data, setData, onNext, savedForLater }) {
               <Field label={FIELD_LABELS.nombre} value={data.nombre} onChange={ch("nombre")} onBlur={bl("nombre")} error={showErr("nombre")&&errors.nombre} autoComplete="given-name" required />
               <Field label={FIELD_LABELS.apellido} value={data.apellido} onChange={ch("apellido")} onBlur={bl("apellido")} error={showErr("apellido")&&errors.apellido} autoComplete="family-name" required />
             </div>
-            <Field label={FIELD_LABELS.email} type="email" value={data.email} onChange={ch("email")} onBlur={bl("email")} error={showErr("email")&&errors.email} autoComplete="email" required hint={cfg("email_hint", "Te enviaremos el comprobante.")} />
+            <Field label={FIELD_LABELS.email} type="email" value={data.email} onChange={ch("email")} onBlur={bl("email")} error={showErr("email")&&errors.email} autoComplete="email" required />
             <Field label={FIELD_LABELS.dni} type="text" inputMode="numeric" value={data.dni} onChange={ch("dni")} onBlur={bl("dni")} error={showErr("dni")&&errors.dni} required hint={cfg("dni_hint", "Requerido por Mercado Pago para identificar el pago.")} />
             <Field label={FIELD_LABELS.telefono} type="tel" value={data.telefono} onChange={ch("telefono")} onBlur={bl("telefono")} error={showErr("telefono")&&errors.telefono} autoComplete="tel" optional hint={cfg("telefono_hint", "Solo si querés que te contactemos.")} />
           </div>
@@ -548,9 +546,7 @@ function Step2({ data, amount, setAmount, frequency, setFrequency, onBack, onSel
   };
 
   const allMethods = [
-    { id:"mp",    name:cfg("method_mp_name", "Mercado Pago"), desc:cfg("method_mp_desc", "Tarjeta, dinero en cuenta o efectivo en Pago Fácil/Rapipago."), tags:cfgList("method_mp_tags", ["Recomendado","Sin comisión extra"]), icon:<Ic.MP width="48" height="48"/>, color:"#00B1EA" },
-    { id:"local", name:cfg("method_local_name", "Tarjeta local (Argentina)"), desc:cfg("method_local_desc", "Crédito o débito emitida en Argentina. Hasta 3 cuotas sin interés."), tags:cfgList("method_local_tags", ["Crédito y débito"]), icon:<Ic.CardL width="48" height="48"/>, color:"#0B6FB8" },
-    { id:"intl",  name:cfg("method_intl_name", "Tarjeta internacional"), desc:cfg("method_intl_desc", "Para donantes desde el exterior. Procesado en USD."), tags:cfgList("method_intl_tags", ["USD","Visa · Master · Amex"]), icon:<Ic.CardI width="48" height="48"/>, color:"#1F3A5F" },
+    { id:"mp",    name:cfg("method_mp_name", "Mercado Pago"), desc:cfg("method_mp_desc", "Tarjeta, dinero en cuenta o efectivo en Pago Fácil/Rapipago."), tags:cfgList("method_mp_tags", ["Recomendado","Tarjetas y efectivo"]), icon:<Ic.MP width="54" height="40"/>, color:"#00B1EA" },
     { id:"bank",  name:cfg("method_bank_name", "Transferencia bancaria"), desc:cfg("method_bank_desc", "Te mostramos los datos de la cuenta para hacer la transferencia."), tags:cfgList("method_bank_tags", ["CBU/Alias"]), icon:<Ic.Bank width="48" height="48"/>, color:"#0B6FB8" },
   ];
   const methods = frequency === "mensual" ? allMethods.filter(m => m.id === "mp") : allMethods;
@@ -632,8 +628,6 @@ function Step3({ data, amount, frequency, method, onBack, onRestart, guardarEnFo
 
   const map = {
     mp:    { name:cfg("method_mp_name", "Mercado Pago"), color:"#00B1EA", icon:<Ic.MP    width="40" height="40"/> },
-    local: { name:cfg("method_local_name", "Tarjeta local"), color:"#0B6FB8", icon:<Ic.CardL width="40" height="40"/> },
-    intl:  { name:cfg("method_intl_name", "Tarjeta internacional"), color:"#1F3A5F", icon:<Ic.CardI width="40" height="40"/> },
     bank:  { name:cfg("method_bank_name", "Transferencia bancaria"), color:"#0B6FB8", icon:<Ic.Bank  width="40" height="40"/> },
   };
   const m = map[method] || map.mp;
@@ -744,7 +738,7 @@ function SavedDataModal({ data, onDonateNow, onDonateLater, onClose }) {
         <button type="button" className="modal-close" onClick={onClose}>×</button>
         <div className="modal-icon"><Ic.Check width="28" height="28"/></div>
         <h2>{cfg("modal_title_prefix", "¡Listo,")} {data.nombre||cfg("anonymous_name", "donante")}{cfg("modal_title_suffix", "! Guardamos tus datos.")}</h2>
-        <p className="modal-lede">{cfg("modal_lede_prefix", "Te enviamos un correo a")} <strong>{data.email}</strong> {cfg("modal_lede_suffix", "para que puedas retomar tu donación cuando quieras.")}</p>
+        <p className="modal-lede">Email registrado: <strong>{data.email}</strong>.</p>
         <div className="modal-card"><Ic.Heart width="18" height="18" style={{color:"var(--accent)",flexShrink:0}}/><p><strong>{cfg("modal_card_title", "¿Querés donar ahora?")}</strong> {cfg("modal_card_text", "Te lleva 1 minuto y tu aporte se convierte hoy mismo en materiales para construir un baño digno.")}</p></div>
         <div className="modal-actions">
           <button type="button" className="cta" onClick={onDonateNow}><span>{cfg("modal_donate_now", "Sí, donar ahora")}</span><Ic.Arrow width="20" height="20"/></button>
@@ -806,7 +800,7 @@ function App() {
     const result = await response.json().catch(() => null);
 
     if (!response.ok || result?.crm_result?.success === false) {
-      console.error('MS Donaciones CRM response:', result);
+      console.error('MS Donaciones save response:', result);
     }
 
     return result;
@@ -824,7 +818,7 @@ function App() {
         {step===1 && <Step1 data={data} setData={setData} onNext={async()=>{
           const result = await guardarEnFormidable(data, { crm_event: "step_1_completed" });
           if (result?.crm_result?.success === false) {
-            throw new Error(result.crm_result.airtable_error || result.crm_result.message || "No pudimos guardar tus datos.");
+            throw new Error("save_failed");
           }
           setShowModal(true);
         }} savedForLater={savedForLater}/>}
