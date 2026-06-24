@@ -8,6 +8,15 @@ class MS_Donaciones_Shortcodes {
 
     public static function init() {
         add_shortcode('formulario_donacion', [__CLASS__, 'render_formulario']);
+        add_filter('script_loader_src', [__CLASS__, 'make_form_script_relative'], 10, 2);
+    }
+
+    public static function make_form_script_relative($src, $handle) {
+        if ($handle === 'ms-donaciones-form') {
+            return wp_make_link_relative($src);
+        }
+
+        return $src;
     }
 
     public static function render_formulario() {
@@ -18,7 +27,7 @@ class MS_Donaciones_Shortcodes {
 
     private static function enqueue_assets() {
         wp_enqueue_script(
-            'react',
+            'ms-donaciones-react',
             'https://unpkg.com/react@18.3.1/umd/react.development.js',
             [],
             null,
@@ -26,15 +35,15 @@ class MS_Donaciones_Shortcodes {
         );
 
         wp_enqueue_script(
-            'react-dom',
+            'ms-donaciones-react-dom',
             'https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js',
-            ['react'],
+            ['ms-donaciones-react'],
             null,
             true
         );
 
         wp_enqueue_script(
-            'babel',
+            'ms-donaciones-babel',
             'https://unpkg.com/@babel/standalone@7.29.0/babel.min.js',
             [],
             null,
@@ -43,8 +52,8 @@ class MS_Donaciones_Shortcodes {
 
         wp_enqueue_script(
             'ms-donaciones-form',
-            MS_DONACIONES_URL . 'assets/donacion.js',
-            ['react', 'react-dom', 'babel'],
+            wp_make_link_relative(MS_DONACIONES_URL . 'assets/donacion.js'),
+            ['ms-donaciones-react', 'ms-donaciones-react-dom', 'ms-donaciones-babel'],
             MS_DONACIONES_VERSION,
             true
         );
@@ -56,7 +65,14 @@ class MS_Donaciones_Shortcodes {
 
         $frontend_labels = $labels;
         foreach (array_keys($frontend_labels) as $key) {
-            if (str_starts_with($key, 'sf_')) {
+            if (
+                str_starts_with($key, 'sf_')
+                || str_contains($key, 'token')
+                || str_contains($key, 'secret')
+                || str_contains($key, 'password')
+                || str_contains($key, 'access_key')
+                || str_contains($key, 'api_key')
+            ) {
                 unset($frontend_labels[$key]);
             }
         }
@@ -66,8 +82,10 @@ class MS_Donaciones_Shortcodes {
         );
 
         wp_localize_script('ms-donaciones-form', 'MS_DONACIONES', [
-            'restUrl' => esc_url_raw(rest_url('donacion/v1')),
-            'assetsUrl' => esc_url_raw(MS_DONACIONES_URL . 'assets/'),
+            // Relative URLs keep the form on the current host, whether it is
+            // opened through Local, ngrok or the production domain.
+            'restUrl' => wp_make_link_relative(rest_url('donacion/v1')),
+            'assetsUrl' => wp_make_link_relative(MS_DONACIONES_URL . 'assets/'),
             'labels'  => $frontend_labels,
         ]);
     }
