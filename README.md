@@ -1,167 +1,166 @@
 # MS Donaciones
 
-Plugin de WordPress para gestionar el formulario de donaciones de Módulo Sanitario.
-
-Incluye:
-
-- Donaciones únicas mediante Mercado Pago Checkout Pro.
-- Donaciones mensuales mediante suscripciones de Mercado Pago.
-- Transferencias bancarias.
-- Registro y actualización de donantes en Salesforce.
-- Creación de oportunidades en Salesforce después de pagos aprobados.
-- Panel de administración para configurar textos, montos, medios de pago e integraciones.
+Plugin de WordPress para donaciones únicas y recurrentes de Módulo Sanitario.
 
 ## Requisitos
 
 - WordPress 6.0 o superior.
 - PHP 8.0 o superior.
-- Una aplicación de Mercado Pago con Access Token.
-- Una Connected App de Salesforce para utilizar la integración CRM.
-- Un sitio público con HTTPS para recibir webhooks.
+- Aplicación de Mercado Pago con Access Token.
+- Salesforce con una Connected App configurada para OAuth Client Credentials.
+- URL pública HTTPS para webhooks.
 
 ## Instalación
 
-1. Copiar la carpeta `ms-donaciones` dentro de:
-
-   ```text
-   wp-content/plugins/
-   ```
-
-2. Activar **MS Donaciones** desde el panel de plugins de WordPress.
-3. Crear o editar la página donde se mostrará el formulario.
-4. Insertar el shortcode:
+1. Copiar `ms-donaciones` en `wp-content/plugins/`.
+2. Activar **MS Donaciones** desde WordPress.
+3. Insertar el shortcode:
 
    ```text
    [formulario_donacion]
    ```
 
-5. Configurar el plugin desde **Donaciones MS** en el panel de administración.
+4. Configurar las integraciones desde **Donaciones MS**.
 
 ## Mercado Pago
 
-La misma credencial se utiliza para donaciones únicas y suscripciones mensuales.
+Configurar:
 
-En **Donaciones MS → Mercado Pago**, configurar:
-
-- **Access Token:** `TEST-...` para pruebas o `APP_USR-...` para producción.
-- **URL de Webhook:**
+- Access Token de pruebas o producción.
+- URL pública del webhook:
 
   ```text
   https://tu-dominio.com/wp-json/donacion/v1/webhook
   ```
 
-- URL de éxito.
-- URL de fallo.
-- URL de pago pendiente.
-- Título del ítem.
-- Descriptor que aparecerá en el resumen de la tarjeta.
+- Opcionalmente, páginas propias de éxito, fallo y pago pendiente.
 
-Después de guardar, utilizar **Probar conexión con Mercado Pago**.
+No es necesario crear una página `/gracias`. De forma predeterminada, Mercado Pago vuelve a los endpoints del plugin, el plugin verifica el estado real de la operación y regresa al formulario mostrando un mensaje de:
 
-### Eventos procesados
+- Pago aprobado.
+- Pago pendiente.
+- Pago rechazado.
+- Suscripción autorizada.
 
-El webhook procesa los siguientes eventos:
+Las URLs personalizadas sólo se utilizan al activar **Usar páginas personalizadas de resultado**.
 
-- `payment`
-- `subscription_preapproval`
-- `subscription_authorized_payment`
+El plugin procesa:
 
-### Endpoints
+- `payment`: pagos puntuales.
+- `subscription_preapproval`: autorización de una suscripción.
+- `subscription_authorized_payment`: cobros procesados de una suscripción.
 
-```text
-POST /wp-json/donacion/v1/crear-preferencia
-POST /wp-json/donacion/v1/crear-suscripcion
-POST /wp-json/donacion/v1/webhook
-GET  /wp-json/donacion/v1/retorno-pago
-GET  /wp-json/donacion/v1/retorno-suscripcion
-```
+La autorización de una suscripción no se registra como dinero cobrado. La Opportunity se crea cuando Mercado Pago confirma el cobro mediante `subscription_authorized_payment`.
+
+`subscription_preapproval` también notifica actualizaciones posteriores. Si la persona pausa o cancela la suscripción desde Mercado Pago, el plugin consulta el Preapproval actualizado y puede guardar en Contact el estado, el ID y la fecha de cancelación. Las Opportunities de cobros anteriores permanecen sin cambios.
 
 ## Salesforce
 
-La autenticación utiliza OAuth 2.0 con el flujo `client_credentials`.
+La autenticación utiliza OAuth 2.0 Client Credentials mediante Consumer Key, Consumer Secret y un usuario configurado como Run As User. Los campos de usuario, contraseña y Security Token no son necesarios.
 
-### Connected App
+La búsqueda de Contact se realiza en este orden:
 
-1. Crear un usuario de integración con acceso a la API.
-2. Crear una Connected App en Salesforce.
-3. Activar OAuth.
-4. Habilitar el flujo Client Credentials.
-5. Seleccionar el usuario de integración como **Run As User**.
-6. Conceder permisos sobre:
+1. Email.
+2. DNI, si se configuró un campo para ese dato.
 
-   - `Contact`
-   - `Account`
-   - `Opportunity`
-   - Campos personalizados utilizados por la integración
+Si existe un Contact con el mismo email, se actualiza en lugar de crear otro. Si Salesforce no puede completar la consulta, el plugin no crea un Contact nuevo para evitar duplicados.
 
-### Configuración en WordPress
+La prueba **Probar conexión y campos personalizados** valida:
 
-En **Donaciones MS → Datos personales a CRM**, configurar:
+- Autenticación OAuth.
+- API Names configurados de Contact.
+- Campo DNI.
+- API Names personalizados de Opportunity.
+- Stage de Opportunity.
+- Valores de `Opportunity.Type` para pagos puntuales y recurrentes.
 
-- Activar envío a Salesforce.
-- Sandbox, si corresponde.
-- URL de My Domain, si la organización lo requiere.
-- Consumer Key.
-- Consumer Secret.
-- API Names de los campos de Contact.
-- API Name del campo DNI.
-- Stage de la oportunidad, por ejemplo `Closed Won`.
+La pantalla muestra checks individuales para campos encontrados, faltantes u opcionales.
 
-Guardar y utilizar **Probar conexión con Salesforce**.
+Las Opportunities se distinguen como:
 
-El plugin busca contactos primero por DNI y luego por correo electrónico. Si encuentra uno, lo actualiza; de lo contrario, crea un Contact nuevo.
+- `PAGO_PUNTUAL`
+- `PAGO_RECURRENTE`
+
+La descripción de cada Opportunity incluye, cuando Mercado Pago los informa:
+
+- Payment ID.
+- Authorized Payment ID, si Mercado Pago lo entrega separado.
+- Preapproval o Subscription ID.
+- External reference.
+- Estado y detalle del estado.
+- Importe y moneda.
+- Medio y tipo de pago.
+- Cantidad de cuotas.
+- Fecha informada por Mercado Pago.
+
+El Contact se relaciona con la Opportunity mediante `OpportunityContactRole`.
+
+### Campos personalizados
+
+El DNI se crea en el objeto `Contact`:
+
+| Etiqueta | Nombre al crear | API Name esperado | Tipo |
+|---|---|---|---|
+| DNI | `DNI` | `DNI__c` | Texto, 20 |
+| Mercado Pago Preapproval ID | `Mercado_Pago_Preapproval_ID` | `Mercado_Pago_Preapproval_ID__c` | Texto, 100 |
+| Estado de suscripción | `Estado_Suscripcion` | `Estado_Suscripcion__c` | Texto, 30 |
+| Fecha de cancelación | `Fecha_Cancelacion_Suscripcion` | `Fecha_Cancelacion_Suscripcion__c` | Fecha/Hora |
+
+Al crear campos en Salesforce no se escribe `__c`; Salesforce agrega el sufijo automáticamente. En WordPress se debe pegar posteriormente el API Name final.
+
+### Campos opcionales de Opportunity
+
+Se pueden crear campos personalizados en Salesforce y configurar sus API Names desde WordPress:
+
+| Etiqueta | Nombre al crear | API Name esperado | Tipo |
+|---|---|---|---|
+| Mercado Pago Payment ID | `Mercado_Pago_Payment_ID` | `Mercado_Pago_Payment_ID__c` | Texto, 100 |
+| Mercado Pago Preapproval ID | `Mercado_Pago_Preapproval_ID` | `Mercado_Pago_Preapproval_ID__c` | Texto, 100 |
+| External Reference | `External_Reference` | `External_Reference__c` | Texto, 150 |
+| Tipo de pago | `Tipo_de_Pago` | `Tipo_de_Pago__c` | Texto, 50 |
+
+Los valores predeterminados de `Opportunity.Type` son:
+
+- `Donación puntual`
+- `Donación recurrente`
+
+Ambos valores deben existir en el picklist de Salesforce y coincidir exactamente.
 
 ## Desarrollo local con ngrok
 
-Mercado Pago necesita una URL pública HTTPS para enviar notificaciones.
-
-En un sitio creado con Local, identificar primero el puerto HTTP de Nginx. Para este proyecto es `10005`.
-
-Ejecutar:
+Para este proyecto de Local, el puerto HTTP es `10005`:
 
 ```powershell
 ngrok http 10005 --host-header=sandbox-modulo-sanitario.local
 ```
 
-Configurar como webhook la URL HTTPS generada:
+Luego usar:
 
 ```text
 https://tu-subdominio.ngrok-free.app/wp-json/donacion/v1/webhook
 ```
 
-La URL debe actualizarse en WordPress y Mercado Pago cada vez que cambie el dominio gratuito de ngrok.
-
-El inspector local de solicitudes está disponible en:
-
-```text
-http://localhost:4040
-```
-
 ## Seguridad
 
-- Las credenciales de Mercado Pago y Salesforce se utilizan únicamente del lado del servidor.
-- Los Access Tokens, secretos y contraseñas no deben incluirse en Git.
-- No compartir exportaciones de la base de datos que contengan opciones del plugin sin eliminar previamente las credenciales.
-- En producción se recomienda limitar los logs y mantener `WP_DEBUG` desactivado.
-
-## Estructura
-
-```text
-ms-donaciones/
-├── assets/
-│   └── donacion.js
-├── includes/
-│   ├── class-about.php
-│   ├── class-admin.php
-│   ├── class-rest.php
-│   └── class-shortcodes.php
-├── ms-donaciones.php
-└── README.md
-```
+- No subir credenciales ni exportaciones de base de datos con secretos a Git.
+- Los tokens de Mercado Pago y Salesforce se utilizan del lado del servidor.
+- En producción se recomienda mantener `WP_DEBUG` desactivado.
 
 ## Versión
 
-Versión actual: **1.0.1**
+Versión actual: **1.1.0**
+
+### Cambios principales de 1.1.0
+
+- Validación de campos y picklists de Salesforce desde el panel.
+- Deduplicación segura de Contact por email y DNI.
+- Clasificación de Opportunities puntuales y recurrentes.
+- Registro de IDs y detalles recibidos desde Mercado Pago.
+- Sincronización en Contact de estados de suscripción, pausas y cancelaciones.
+- Registro opcional de Preapproval ID, estado y fecha de cancelación.
+- Retornos automáticos sin depender de una página `/gracias`.
+- Guías integradas para Salesforce y Mercado Pago Developers.
+- Mejoras responsive y compatibilidad con ngrok.
 
 ## Licencia
 

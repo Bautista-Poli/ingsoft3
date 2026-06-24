@@ -9,6 +9,8 @@ class MS_Donaciones_Shortcodes {
     public static function init() {
         add_shortcode('formulario_donacion', [__CLASS__, 'render_formulario']);
         add_filter('script_loader_src', [__CLASS__, 'make_form_script_relative'], 10, 2);
+        add_filter('the_content', [__CLASS__, 'rewrite_local_content_urls'], 20);
+        add_filter('render_block', [__CLASS__, 'rewrite_local_content_urls'], 20);
     }
 
     public static function make_form_script_relative($src, $handle) {
@@ -17,6 +19,20 @@ class MS_Donaciones_Shortcodes {
         }
 
         return $src;
+    }
+
+    public static function rewrite_local_content_urls($content) {
+        if (empty($_SERVER['HTTP_X_FORWARDED_HOST']) || !is_string($content)) {
+            return $content;
+        }
+
+        return preg_replace_callback(
+            '#https?://[a-z0-9.-]+\.local(?P<path>/[^"\'\s<)]*)?#i',
+            static function ($matches) {
+                return home_url($matches['path'] ?? '/');
+            },
+            $content
+        );
     }
 
     public static function render_formulario() {
@@ -109,7 +125,16 @@ class MS_Donaciones_Shortcodes {
             'sf_field_email' => 'Email',
             'sf_field_phone' => 'MobilePhone',
             'sf_field_dni' => '',
+            'sf_contact_field_subscription_id' => '',
+            'sf_contact_field_subscription_status' => '',
+            'sf_contact_field_subscription_cancelled_at' => '',
             'sf_opp_stage' => 'Closed Won',
+            'sf_opp_type_unico' => 'Donación puntual',
+            'sf_opp_type_recurrente' => 'Donación recurrente',
+            'sf_opp_field_payment_id' => '',
+            'sf_opp_field_subscription_id' => '',
+            'sf_opp_field_external_reference' => '',
+            'sf_opp_field_payment_kind' => '',
             'sf_connection_status' => 'unknown',
             'sf_connection_message' => '',
             'mp_access_token' => '',
@@ -117,9 +142,10 @@ class MS_Donaciones_Shortcodes {
             'mp_connection_message' => '',
             'mp_item_title' => 'Donación Módulo Sanitario',
             'mp_statement_descriptor' => 'MODULO SANITARIO',
-            'mp_success_url' => 'https://modulosanitario.org/gracias',
-            'mp_failure_url' => 'https://modulosanitario.org/donar',
-            'mp_pending_url' => 'https://modulosanitario.org/gracias',
+            'mp_use_custom_result_urls' => '0',
+            'mp_success_url' => '',
+            'mp_failure_url' => '',
+            'mp_pending_url' => '',
             'mp_webhook_url' => '',
             'foto_url' => 'https://modulosanitario.org/wp-content/uploads/2025/08/banos-portadad-_0003_IMG-20250209-WA0023-1-768x768.jpg',
             'hero_caption' => 'Familia Pereyra · Florencio Varela · 2025',

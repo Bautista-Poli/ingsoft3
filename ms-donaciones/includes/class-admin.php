@@ -106,6 +106,11 @@ class MS_Donaciones_Admin {
                 continue;
             }
 
+            if ($key === 'mp_use_custom_result_urls') {
+                $output[$key] = !empty($value) ? '1' : '0';
+                continue;
+            }
+
             if ($key === 'amount_presets') {
                 $amounts = array_filter(array_map('absint', preg_split('/[\s,;]+/', (string) $value)));
                 $output[$key] = implode(',', $amounts);
@@ -148,6 +153,14 @@ class MS_Donaciones_Admin {
             MS_Donaciones_Shortcodes::default_labels(),
             get_option('ms_donaciones_labels', [])
         );
+        foreach ([
+            'sf_opp_type_unico' => 'Donación puntual',
+            'sf_opp_type_recurrente' => 'Donación recurrente',
+        ] as $key => $default_value) {
+            if (($labels[$key] ?? '') === '') {
+                $labels[$key] = $default_value;
+            }
+        }
         $sections = self::get_sections($labels);
         $current_slug = self::current_section_slug($sections);
         $section = $sections[$current_slug];
@@ -197,6 +210,30 @@ class MS_Donaciones_Admin {
                         <?php endif; ?>
                     <?php endif; ?>
 
+                    <?php if ($current_slug === 'crm') : ?>
+                        <div class="notice notice-warning inline ms-section-reminder">
+                            <p>
+                                <strong>Antes de terminar:</strong>
+                                guarda esta sección y revisa al final
+                                <a href="#ms-salesforce-custom-fields-guide">la guía para crear campos custom</a>
+                                y
+                                <a href="#ms-crm-connection-test">la prueba de conexión con Salesforce</a>.
+                            </p>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if ($current_slug === 'mercadopago') : ?>
+                        <div class="notice notice-info inline ms-section-reminder">
+                            <p>
+                                <strong>Configuración recomendada:</strong>
+                                revisa al final
+                                <a href="#ms-mercadopago-setup-guide">la guía de Mercado Pago Developers</a>
+                                y luego ejecuta
+                                <a href="#ms-mercadopago-connection-test">la prueba de conexión</a>.
+                            </p>
+                        </div>
+                    <?php endif; ?>
+
                     <table class="form-table" role="presentation">
                         <?php foreach ($section['fields'] as $key => $field) : ?>
                             <?php
@@ -204,6 +241,32 @@ class MS_Donaciones_Admin {
                             $type = $field[1] ?? 'text';
                             $description = $field[2] ?? '';
                             ?>
+                            <?php if ($current_slug === 'crm' && $key === 'sf_field_firstname') : ?>
+                                <tr class="ms-field-group-row">
+                                    <th colspan="2">
+                                        <div class="ms-field-group">
+                                            <span class="dashicons dashicons-admin-users" aria-hidden="true"></span>
+                                            <div>
+                                                <h3>Campos de Contact</h3>
+                                                <p>Datos personales del donante. DNI pertenece a Contact y se usa, después del email, para localizar y actualizar una persona existente.</p>
+                                            </div>
+                                        </div>
+                                    </th>
+                                </tr>
+                            <?php endif; ?>
+                            <?php if ($current_slug === 'crm' && $key === 'sf_opp_stage') : ?>
+                                <tr class="ms-field-group-row">
+                                    <th colspan="2">
+                                        <div class="ms-field-group">
+                                            <span class="dashicons dashicons-chart-line" aria-hidden="true"></span>
+                                            <div>
+                                                <h3>Campos de Opportunity</h3>
+                                                <p>Datos de cada cobro confirmado. Se crea una Opportunity por pago puntual o por cada cobro procesado de una suscripción.</p>
+                                            </div>
+                                        </div>
+                                    </th>
+                                </tr>
+                            <?php endif; ?>
                             <tr>
                                 <th scope="row">
                                     <label for="ms-donaciones-<?php echo esc_attr($key); ?>">
@@ -216,6 +279,14 @@ class MS_Donaciones_Admin {
                             </tr>
                         <?php endforeach; ?>
                     </table>
+
+                    <?php if ($current_slug === 'crm') : ?>
+                        <?php self::render_salesforce_opportunity_guide(); ?>
+                    <?php endif; ?>
+
+                    <?php if ($current_slug === 'mercadopago') : ?>
+                        <?php self::render_mercadopago_guide(); ?>
+                    <?php endif; ?>
 
                     <?php if (!empty($section['help'])) : ?>
                         <?php self::render_help_box($section['help']); ?>
@@ -279,28 +350,38 @@ class MS_Donaciones_Admin {
                 'description' => 'Configuracion del envio automatico de los datos del primer paso a Salesforce (NPSP).',
                 'fields' => [
                     'sf_enabled'         => ['Activar envio a Salesforce', 'checkbox'],
-                    'sf_sandbox'         => ['Usar sandbox de Salesforce', 'checkbox'],
+                    'sf_sandbox'         => ['Usar sandbox de Salesforce', 'checkbox', 'Actívalo únicamente si esta integración apunta a una organización Sandbox de Salesforce. Al activarlo y dejar vacía la URL de login, el plugin autentica contra test.salesforce.com. Normalmente se deja desactivado porque las credenciales productivas y las External Client Apps de producción usan login.salesforce.com o el My Domain productivo.'],
                     'sf_login_url'       => ['URL/Dominio de login', 'text', 'Opcional. Usa el My Domain de Salesforce si aplica. Ej: https://tu-dominio.my.salesforce.com. Si lo dejas vacio usa produccion o sandbox.'],
                     'sf_consumer_key'    => ['Consumer Key', 'password', 'Consumer Key de la Connected App en Salesforce.'],
                     'sf_consumer_secret' => ['Consumer Secret', 'password', 'Consumer Secret de la Connected App en Salesforce.'],
-                    'sf_username'        => ['Usuario de Salesforce', 'text', 'Email de acceso a Salesforce.'],
-                    'sf_password_token'  => ['Contraseña + Security Token', 'password', 'Concatena tu contraseña con el Security Token sin espacios. Ej: MiPassword123AbCdEfGhIjK.'],
+                    'sf_username'        => ['Usuario de Salesforce (no requerido)', 'text', 'No se utiliza con Client Credentials. Déjalo vacío si Consumer Key, Consumer Secret y Run As User están correctamente configurados en Salesforce.'],
+                    'sf_password_token'  => ['Contraseña + Security Token (no requerido)', 'password', 'No se utiliza con Client Credentials. No hace falta completar contraseña ni Security Token cuando la aplicación tiene un Run As User configurado.'],
                     'sf_field_firstname' => ['API Name: Nombre (Contact)', 'text', 'Por defecto: FirstName. Cambialo solo si el campo es custom.'],
                     'sf_field_lastname'  => ['API Name: Apellido (Contact)', 'text', 'Por defecto: LastName.'],
                     'sf_field_email'     => ['API Name: Email (Contact)', 'text', 'Por defecto: Email.'],
                     'sf_field_phone'     => ['API Name: Telefono (Contact)', 'text', 'Por defecto: MobilePhone.'],
-                    'sf_field_dni'       => ['API Name: DNI (Contact)', 'text', 'API Name del campo custom de DNI. Ej: npe01__Numero_de_Documento__c.'],
-                    'sf_opp_stage'       => ['Stage de Oportunidad', 'text', 'Stage name para donaciones aprobadas por Mercado Pago. Por defecto: Closed Won.'],
+                    'sf_field_dni'       => ['API Name: DNI', 'text', 'Objeto: Contact. Campo custom usado para identificar al donante. Ej: npe01__Numero_de_Documento__c.'],
+                    'sf_contact_field_subscription_id' => ['API Name: Mercado Pago Preapproval ID', 'text', 'Objeto: Contact. Opcional; guarda el ID de la suscripción activa o cancelada.'],
+                    'sf_contact_field_subscription_status' => ['API Name: Estado de suscripción', 'text', 'Objeto: Contact. Opcional; guarda estados como authorized, paused, pending o cancelled.'],
+                    'sf_contact_field_subscription_cancelled_at' => ['API Name: Fecha de cancelación', 'text', 'Objeto: Contact. Opcional; campo Fecha/Hora que se completa cuando Mercado Pago informa cancelled.'],
+                    'sf_opp_stage'       => ['Stage', 'text', 'Objeto: Opportunity. Stage name para donaciones aprobadas por Mercado Pago. Por defecto: Closed Won.'],
+                    'sf_opp_type_unico'  => ['Valor de Opportunity Type para pago puntual (opcional)', 'text', 'Escribe un valor que ya exista en el picklist Type de Salesforce, por ejemplo: Donación puntual. Aunque este input sea de texto, no crea una opción nueva en Salesforce. Déjalo vacío si no utilizas Opportunity Type.'],
+                    'sf_opp_type_recurrente' => ['Valor de Opportunity Type para pago recurrente (opcional)', 'text', 'Escribe un valor que ya exista en el picklist Type de Salesforce, por ejemplo: Donación recurrente. Debe coincidir exactamente, incluyendo mayúsculas y acentos. Déjalo vacío si no utilizas Opportunity Type.'],
+                    'sf_opp_field_payment_id' => ['API Name: Mercado Pago Payment ID', 'text', 'Objeto: Opportunity. Campo custom opcional donde guardar el ID del cobro.'],
+                    'sf_opp_field_subscription_id' => ['API Name: Mercado Pago Preapproval ID', 'text', 'Objeto: Opportunity. Campo custom opcional donde guardar el ID de la suscripcion.'],
+                    'sf_opp_field_external_reference' => ['API Name: External Reference', 'text', 'Objeto: Opportunity. Campo custom opcional para la referencia generada por WordPress.'],
+                    'sf_opp_field_payment_kind' => ['API Name: Tipo de pago', 'text', 'Objeto: Opportunity. Campo custom opcional donde guardar PAGO_PUNTUAL o PAGO_RECURRENTE.'],
                 ],
                 'help' => [
                     'title' => 'Como conectar WordPress con Salesforce',
                     'items' => [
-                        'En Salesforce → Setup → App Manager → New Connected App.',
-                        'Habilita OAuth Settings. URL de callback: cualquier URL de tu sitio.',
-                        'Scopes requeridos: api, refresh_token.',
+                        'En Salesforce crea una External Client App o Connected App y habilita OAuth.',
+                        'Activa solamente el flujo de credenciales de cliente y el scope API.',
+                        'La URL de callback puede ser cualquier URL HTTPS estable; este flujo no la utiliza.',
+                        'Asigna un Client Credentials User / Run As User en las politicas OAuth.',
                         'Copia Consumer Key y Consumer Secret al panel de arriba.',
-                        'Si tu org exige My Domain, completa URL/Dominio de login con el dominio exacto de Salesforce.',
-                        'Concatena tu contraseña con tu Security Token (sin espacio) en el campo Contraseña + Security Token.',
+                        'Usa el My Domain terminado en my.salesforce.com; no uses lightning.force.com.',
+                        'Usuario, contraseña y Security Token no se utilizan con client_credentials.',
                         'El API Name del campo DNI debe incluir __c si es un campo custom. Buscalo en Setup → Object Manager → Contact → Fields.',
                     ],
                     'link' => 'https://help.salesforce.com/s/articleView?id=sf.connected_app_create.htm',
@@ -331,13 +412,14 @@ class MS_Donaciones_Admin {
                 'title' => 'Mercado Pago',
                 'description' => 'Configuracion server-side para crear preferencias de Checkout Pro.',
                 'fields' => [
-                    'mp_access_token' => ['Access Token', 'password', 'Puede ser TEST-... para pruebas o APP_USR-... para produccion. No se expone en el navegador.'],
+                    'mp_access_token' => ['Access Token', 'password', 'Copia el Access Token desde la sección de credenciales de prueba o producción de Mercado Pago Developers. El prefijo APP_USR- también puede aparecer en credenciales de prueba; verifica siempre la sección de origen. No se expone en el navegador.'],
                     'mp_webhook_url'  => ['URL de Webhook', 'url', 'URL publica para notificaciones de pago. En produccion: https://tu-sitio.com/wp-json/donacion/v1/webhook. En dev: URL de ngrok.'],
                     'mp_item_title' => ['Título del item'],
                     'mp_statement_descriptor' => ['Descriptor en resumen'],
-                    'mp_success_url' => ['URL exito', 'url'],
-                    'mp_failure_url' => ['URL fallo', 'url'],
-                    'mp_pending_url' => ['URL pendiente', 'url'],
+                    'mp_use_custom_result_urls' => ['Usar páginas personalizadas de resultado', 'checkbox', 'Déjalo desactivado para que el plugin reconozca el resultado y vuelva automáticamente al formulario con un mensaje de aprobado, pendiente o rechazado. Actívalo sólo si ya existen páginas propias para esos estados.'],
+                    'mp_success_url' => ['URL éxito (opcional)', 'url', 'Se usa únicamente si activas páginas personalizadas.'],
+                    'mp_failure_url' => ['URL fallo (opcional)', 'url', 'Se usa únicamente si activas páginas personalizadas.'],
+                    'mp_pending_url' => ['URL pendiente (opcional)', 'url', 'Se usa únicamente si activas páginas personalizadas.'],
                 ],
             ],
             'transferencia' => [
@@ -599,10 +681,10 @@ class MS_Donaciones_Admin {
         $configs = [
             'crm' => [
                 'action' => 'ms_donaciones_test_salesforce',
-                'label' => 'Probar conexion con Salesforce',
+                'label' => 'Probar conexión y campos personalizados',
                 'status_key' => 'sf_connection_status',
                 'message_key' => 'sf_connection_message',
-                'hint' => 'Guarda los cambios antes de probar. La prueba verifica las credenciales OAuth contra Salesforce.',
+                'hint' => 'Guarda los cambios antes de probar. La prueba valida OAuth, campos configurados de Contact y Opportunity, Stage y valores de Opportunity Type.',
             ],
             'mercadopago' => [
                 'action' => 'ms_donaciones_test_mercadopago',
@@ -622,13 +704,24 @@ class MS_Donaciones_Admin {
         $message = sanitize_text_field($labels[$config['message_key']] ?? '');
         $nonce = wp_create_nonce('ms_donaciones_connection_test');
         ?>
-        <aside class="ms-connection-box" data-status="<?php echo esc_attr($status); ?>">
+        <aside
+            class="ms-connection-box"
+            data-status="<?php echo esc_attr($status); ?>"
+            <?php
+            if ($current_slug === 'crm') {
+                echo 'id="ms-crm-connection-test"';
+            } elseif ($current_slug === 'mercadopago') {
+                echo 'id="ms-mercadopago-connection-test"';
+            }
+            ?>
+        >
             <div>
                 <h3>Estado de conexión</h3>
                 <p><?php echo esc_html($config['hint']); ?></p>
                 <p class="ms-connection-result">
                     <?php echo esc_html(self::connection_status_label($status, $message)); ?>
                 </p>
+                <ul class="ms-connection-checks" hidden></ul>
             </div>
             <button
                 type="button"
@@ -645,11 +738,16 @@ class MS_Donaciones_Admin {
                 if (!box) return;
                 const button = box.querySelector(".ms-test-connection");
                 const result = box.querySelector(".ms-connection-result");
+                const checks = box.querySelector(".ms-connection-checks");
                 if (!button || !result) return;
 
                 button.addEventListener("click", async function(){
                     button.disabled = true;
                     result.textContent = "Probando conexion...";
+                    if (checks) {
+                        checks.hidden = true;
+                        checks.replaceChildren();
+                    }
 
                     const formData = new FormData();
                     formData.append("action", button.dataset.action);
@@ -660,6 +758,17 @@ class MS_Donaciones_Admin {
                         const payload = await response.json();
                         const data = payload.data || {};
                         result.textContent = data.message || (payload.success ? "Conexión válida." : "No se pudo conectar.");
+                        if (checks && Array.isArray(data.checks) && data.checks.length) {
+                            data.checks.forEach(function(check){
+                                const item = document.createElement("li");
+                                item.className = check.status === "ok"
+                                    ? "is-ok"
+                                    : (check.status === "warning" ? "is-warning" : "is-error");
+                                item.textContent = check.message || "";
+                                checks.appendChild(item);
+                            });
+                            checks.hidden = false;
+                        }
                         box.dataset.status = payload.success ? "valid" : "invalid";
                     } catch (error) {
                         result.textContent = "No se pudo ejecutar la prueba.";
@@ -718,12 +827,36 @@ class MS_Donaciones_Admin {
         $status_code = wp_remote_retrieve_response_code($response);
         $body        = json_decode(wp_remote_retrieve_body($response), true);
 
-        if ($status_code === 200 && !empty($body['access_token'])) {
-            $instance = $body['instance_url'] ?? '';
-            $message  = 'Conexion valida con Salesforce' . ($instance ? ' (' . $instance . ')' : '') . '.';
+        if ($status_code === 200 && !empty($body['access_token']) && !empty($body['instance_url'])) {
+            $instance = rtrim($body['instance_url'], '/');
+            $checks = [[
+                'status'  => 'ok',
+                'message' => 'OAuth: conexión válida con ' . $instance . '.',
+            ]];
+            $validation = self::validate_salesforce_schema(
+                $instance,
+                $body['access_token'],
+                $labels
+            );
+            $checks = array_merge($checks, $validation['checks']);
+
             delete_transient('ms_donaciones_sf_auth');
+
+            if (!$validation['success']) {
+                $message = 'Conexión válida, pero hay campos o valores configurados que no existen en Salesforce.';
+                self::save_connection_status('sf', 'invalid', $message);
+                wp_send_json_error([
+                    'message' => $message,
+                    'checks'  => $checks,
+                ]);
+            }
+
+            $message = 'Conexión y configuración de campos válidas.';
             self::save_connection_status('sf', 'valid', $message);
-            wp_send_json_success(['message' => $message]);
+            wp_send_json_success([
+                'message' => $message,
+                'checks'  => $checks,
+            ]);
         }
 
         $error   = $body['error_description'] ?? $body['error'] ?? ('HTTP ' . $status_code);
@@ -733,6 +866,194 @@ class MS_Donaciones_Admin {
         $message = 'Error autenticando con Salesforce: ' . $error;
         self::save_connection_status('sf', 'invalid', $message);
         wp_send_json_error(['message' => $message]);
+    }
+
+    private static function validate_salesforce_schema($instance_url, $token, $labels) {
+        $contact_describe = self::salesforce_describe_object($instance_url, $token, 'Contact');
+        $opportunity_describe = self::salesforce_describe_object($instance_url, $token, 'Opportunity');
+        $checks = [];
+        $success = true;
+
+        if (!$contact_describe['success']) {
+            $checks[] = [
+                'status'  => 'error',
+                'message' => 'Contact: no se pudo consultar el esquema. ' . $contact_describe['error'],
+            ];
+            $success = false;
+        } else {
+            $contact_fields = self::salesforce_field_map($contact_describe['body']);
+            foreach ([
+                'Nombre'   => sanitize_text_field($labels['sf_field_firstname'] ?? 'FirstName'),
+                'Apellido' => sanitize_text_field($labels['sf_field_lastname'] ?? 'LastName'),
+                'Email'    => sanitize_text_field($labels['sf_field_email'] ?? 'Email'),
+                'Teléfono' => sanitize_text_field($labels['sf_field_phone'] ?? 'MobilePhone'),
+                'DNI'      => sanitize_text_field($labels['sf_field_dni'] ?? ''),
+                'Mercado Pago Preapproval ID' => sanitize_text_field($labels['sf_contact_field_subscription_id'] ?? ''),
+                'Estado de suscripción' => sanitize_text_field($labels['sf_contact_field_subscription_status'] ?? ''),
+                'Fecha de cancelación' => sanitize_text_field($labels['sf_contact_field_subscription_cancelled_at'] ?? ''),
+            ] as $label => $api_name) {
+                if ($api_name === '') {
+                    if ($label === 'DNI') {
+                        $checks[] = [
+                            'status'  => 'warning',
+                            'message' => 'Contact · DNI: no configurado; se deduplicará únicamente por email.',
+                        ];
+                    } elseif (in_array($label, ['Mercado Pago Preapproval ID', 'Estado de suscripción', 'Fecha de cancelación'], true)) {
+                        $checks[] = [
+                            'status'  => 'warning',
+                            'message' => 'Contact · ' . $label . ': no configurado; los cambios de suscripción sólo quedarán en el log.',
+                        ];
+                    }
+                    continue;
+                }
+
+                if (isset($contact_fields[$api_name])) {
+                    $checks[] = [
+                        'status'  => 'ok',
+                        'message' => 'Contact · ' . $label . ': existe ' . $api_name . '.',
+                    ];
+                } else {
+                    $checks[] = [
+                        'status'  => 'error',
+                        'message' => 'Contact · ' . $label . ': no existe ' . $api_name . '. Revisa el API Name, incluyendo __c.',
+                    ];
+                    $success = false;
+                }
+            }
+        }
+
+        if (!$opportunity_describe['success']) {
+            $checks[] = [
+                'status'  => 'error',
+                'message' => 'Opportunity: no se pudo consultar el esquema. ' . $opportunity_describe['error'],
+            ];
+            $success = false;
+        } else {
+            $opportunity_fields = self::salesforce_field_map($opportunity_describe['body']);
+            foreach ([
+                'Mercado Pago Payment ID'     => sanitize_text_field($labels['sf_opp_field_payment_id'] ?? ''),
+                'Mercado Pago Preapproval ID' => sanitize_text_field($labels['sf_opp_field_subscription_id'] ?? ''),
+                'External Reference'           => sanitize_text_field($labels['sf_opp_field_external_reference'] ?? ''),
+                'Tipo de pago'                 => sanitize_text_field($labels['sf_opp_field_payment_kind'] ?? ''),
+            ] as $label => $api_name) {
+                if ($api_name === '') {
+                    $checks[] = [
+                        'status'  => 'warning',
+                        'message' => 'Opportunity · ' . $label . ': no configurado; el dato quedará en Description.',
+                    ];
+                    continue;
+                }
+
+                if (isset($opportunity_fields[$api_name])) {
+                    $checks[] = [
+                        'status'  => 'ok',
+                        'message' => 'Opportunity · ' . $label . ': existe ' . $api_name . '.',
+                    ];
+                } else {
+                    $checks[] = [
+                        'status'  => 'error',
+                        'message' => 'Opportunity · ' . $label . ': no existe ' . $api_name . '. Revisa el API Name, incluyendo __c.',
+                    ];
+                    $success = false;
+                }
+            }
+
+            foreach ([
+                'Stage' => [
+                    'field' => 'StageName',
+                    'value' => sanitize_text_field($labels['sf_opp_stage'] ?? 'Closed Won'),
+                ],
+                'Type para pago puntual' => [
+                    'field' => 'Type',
+                    'value' => sanitize_text_field($labels['sf_opp_type_unico'] ?? ''),
+                ],
+                'Type para pago recurrente' => [
+                    'field' => 'Type',
+                    'value' => sanitize_text_field($labels['sf_opp_type_recurrente'] ?? ''),
+                ],
+            ] as $label => $config) {
+                if ($config['value'] === '') {
+                    $checks[] = [
+                        'status'  => 'warning',
+                        'message' => 'Opportunity · ' . $label . ': sin valor configurado.',
+                    ];
+                    continue;
+                }
+
+                $values = self::salesforce_active_picklist_values(
+                    $opportunity_fields[$config['field']] ?? []
+                );
+                if (in_array($config['value'], $values, true)) {
+                    $checks[] = [
+                        'status'  => 'ok',
+                        'message' => 'Opportunity · ' . $label . ': existe "' . $config['value'] . '".',
+                    ];
+                } else {
+                    $checks[] = [
+                        'status'  => 'error',
+                        'message' => 'Opportunity · ' . $label . ': no existe el valor "' . $config['value'] . '" en Salesforce.',
+                    ];
+                    $success = false;
+                }
+            }
+        }
+
+        return [
+            'success' => $success,
+            'checks'  => $checks,
+        ];
+    }
+
+    private static function salesforce_describe_object($instance_url, $token, $object_name) {
+        $response = wp_remote_get(
+            rtrim($instance_url, '/') . '/services/data/v59.0/sobjects/' . rawurlencode($object_name) . '/describe',
+            [
+                'headers' => ['Authorization' => 'Bearer ' . $token],
+                'timeout' => 15,
+            ]
+        );
+
+        if (is_wp_error($response)) {
+            return [
+                'success' => false,
+                'body'    => [],
+                'error'   => $response->get_error_message(),
+            ];
+        }
+
+        $status = wp_remote_retrieve_response_code($response);
+        $raw_body = wp_remote_retrieve_body($response);
+        $body = json_decode($raw_body, true);
+
+        return [
+            'success' => $status >= 200 && $status < 300 && is_array($body),
+            'body'    => is_array($body) ? $body : [],
+            'error'   => ($status >= 200 && $status < 300)
+                ? ''
+                : (self::extract_api_error($raw_body) ?: 'HTTP ' . $status),
+        ];
+    }
+
+    private static function salesforce_field_map($describe) {
+        $fields = [];
+        foreach (($describe['fields'] ?? []) as $field) {
+            if (!empty($field['name'])) {
+                $fields[$field['name']] = $field;
+            }
+        }
+
+        return $fields;
+    }
+
+    private static function salesforce_active_picklist_values($field) {
+        $values = [];
+        foreach (($field['picklistValues'] ?? []) as $option) {
+            if (($option['active'] ?? false) && isset($option['value'])) {
+                $values[] = (string) $option['value'];
+            }
+        }
+
+        return $values;
     }
 
     public static function ajax_test_mercadopago() {
@@ -874,6 +1195,226 @@ class MS_Donaciones_Admin {
         <?php
     }
 
+    private static function render_salesforce_opportunity_guide() {
+        ?>
+        <details class="ms-setup-guide" id="ms-salesforce-custom-fields-guide">
+            <summary>
+                <span>
+                    <strong>Cómo crear campos custom en Salesforce</strong>
+                    <small>Guía para crear el DNI en Contact y los datos de Mercado Pago en Opportunity.</small>
+                </span>
+            </summary>
+
+            <div class="ms-setup-guide-content">
+                <ol>
+                    <li>En Salesforce ve a <strong>Configuración → Gestor de objetos</strong>.</li>
+                    <li>Abre el objeto indicado en cada tabla: <strong>Contact</strong> u <strong>Opportunity</strong>.</li>
+                    <li>Entra a <strong>Campos y relaciones → Nuevo → Texto</strong> y crea el campo.</li>
+                    <li>En <strong>Nombre de campo</strong> escribe el nombre sin <code>__c</code>; Salesforce agrega ese sufijo automáticamente.</li>
+                    <li>Asigna visibilidad y permiso de edición al usuario configurado como <strong>Run As User</strong>.</li>
+                    <li>Copia el <strong>API Name real</strong> de cada campo y pégalo en su casilla de esta pantalla.</li>
+                </ol>
+
+                <h4>Contact: identificación del donante</h4>
+                <p class="ms-guide-intro">
+                    Este campo se guarda en la persona. El plugin busca primero por email y luego por DNI para evitar contactos duplicados.
+                </p>
+
+                <div class="ms-guide-table-wrap">
+                    <table class="widefat striped ms-guide-table">
+                        <thead>
+                            <tr>
+                                <th>Etiqueta sugerida</th>
+                                <th>Nombre al crear</th>
+                                <th>API Name final esperado</th>
+                                <th>Tipo / longitud</th>
+                                <th>Valor guardado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>DNI</td>
+                                <td><code>DNI</code></td>
+                                <td><code>DNI__c</code></td>
+                                <td>Texto, 20</td>
+                                <td>Documento del Contact</td>
+                            </tr>
+                            <tr>
+                                <td>Mercado Pago Preapproval ID</td>
+                                <td><code>Mercado_Pago_Preapproval_ID</code></td>
+                                <td><code>Mercado_Pago_Preapproval_ID__c</code></td>
+                                <td>Texto, 100</td>
+                                <td>ID de la suscripción más reciente</td>
+                            </tr>
+                            <tr>
+                                <td>Estado de suscripción</td>
+                                <td><code>Estado_Suscripcion</code></td>
+                                <td><code>Estado_Suscripcion__c</code></td>
+                                <td>Texto, 30</td>
+                                <td><code>authorized</code>, <code>paused</code>, <code>pending</code> o <code>cancelled</code></td>
+                            </tr>
+                            <tr>
+                                <td>Fecha de cancelación</td>
+                                <td><code>Fecha_Cancelacion_Suscripcion</code></td>
+                                <td><code>Fecha_Cancelacion_Suscripcion__c</code></td>
+                                <td>Fecha/Hora</td>
+                                <td>Momento informado al cancelar</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h4>Opportunity: trazabilidad de los cobros</h4>
+                <p class="ms-guide-intro">
+                    Estos campos son opcionales. Permiten filtrar y reportar pagos sin depender únicamente de la descripción.
+                </p>
+
+                <div class="ms-guide-table-wrap">
+                    <table class="widefat striped ms-guide-table">
+                        <thead>
+                            <tr>
+                                <th>Etiqueta sugerida</th>
+                                <th>Nombre al crear</th>
+                                <th>API Name final esperado</th>
+                                <th>Tipo / longitud</th>
+                                <th>Valor guardado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Mercado Pago Payment ID</td>
+                                <td><code>Mercado_Pago_Payment_ID</code></td>
+                                <td><code>Mercado_Pago_Payment_ID__c</code></td>
+                                <td>Texto, 100</td>
+                                <td>ID del cobro confirmado</td>
+                            </tr>
+                            <tr>
+                                <td>Mercado Pago Preapproval ID</td>
+                                <td><code>Mercado_Pago_Preapproval_ID</code></td>
+                                <td><code>Mercado_Pago_Preapproval_ID__c</code></td>
+                                <td>Texto, 100</td>
+                                <td>ID de la suscripción</td>
+                            </tr>
+                            <tr>
+                                <td>External Reference</td>
+                                <td><code>External_Reference</code></td>
+                                <td><code>External_Reference__c</code></td>
+                                <td>Texto, 150</td>
+                                <td>Referencia generada por WordPress</td>
+                            </tr>
+                            <tr>
+                                <td>Tipo de pago</td>
+                                <td><code>Tipo_de_Pago</code></td>
+                                <td><code>Tipo_de_Pago__c</code></td>
+                                <td>Texto, 50</td>
+                                <td><code>PAGO_PUNTUAL</code> o <code>PAGO_RECURRENTE</code></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p class="ms-guide-tip">
+                    <strong>Importante:</strong> Salesforce puede ajustar el API Name al guardar.
+                    No escribas <code>__c</code> al crear el campo. Copia después el API Name definitivo,
+                    que Salesforce mostrará terminado en <code>__c</code>, y pégalo en WordPress.
+                    El DNI debe configurarse en la sección <strong>Campos de Contact</strong>.
+                    Los campos de estado de suscripción también pertenecen a <strong>Contact</strong> y permiten reflejar
+                    pausas o cancelaciones notificadas por Mercado Pago.
+                    Los campos de cobro se configuran en <strong>Campos de Opportunity</strong>; si no los creas,
+                    la integración sigue funcionando y deja esos datos en la descripción de la Opportunity.
+                </p>
+            </div>
+        </details>
+        <?php
+    }
+
+    private static function render_mercadopago_guide() {
+        ?>
+        <details class="ms-setup-guide" id="ms-mercadopago-setup-guide">
+            <summary>
+                <span>
+                    <strong>Cómo configurar Mercado Pago Developers</strong>
+                    <small>Aplicación, credenciales, notificaciones y usuarios de prueba.</small>
+                </span>
+            </summary>
+
+            <div class="ms-setup-guide-content">
+                <ol>
+                    <li>Entra a <strong>Mercado Pago Developers → Tus integraciones</strong> y crea o abre una aplicación.</li>
+                    <li>En <strong>Credenciales</strong>, copia el <strong>Access Token</strong> desde la sección de prueba o producción correspondiente. No determines el entorno sólo por el prefijo: Mercado Pago también puede entregar tokens <code>APP_USR-...</code> en credenciales de prueba.</li>
+                    <li>Pega el token arriba, guarda esta sección y ejecuta <strong>Probar conexión con Mercado Pago</strong>.</li>
+                    <li>Configura como URL pública del webhook: <code>https://tu-dominio.com/wp-json/donacion/v1/webhook</code>.</li>
+                    <li>Activa notificaciones de <strong>pagos</strong> y de <strong>suscripciones</strong>. El plugin procesa <code>payment</code>, <code>subscription_preapproval</code> y <code>subscription_authorized_payment</code>.</li>
+                    <li>En <strong>Pruebas → Cuentas de prueba</strong>, verifica que existan al menos una cuenta <strong>Vendedor</strong> y una cuenta <strong>Comprador</strong>, ambas de Argentina.</li>
+                    <li>Para probar una suscripción, usa en el formulario el usuario/email generado para la cuenta Comprador y, al abrirse el checkout, inicia sesión con el <strong>Usuario</strong> y la <strong>Contraseña</strong> de esa cuenta.</li>
+                    <li>Si Mercado Pago solicita validación por email, utiliza el <strong>Código de verificación de 6 dígitos</strong> mostrado en la tabla de Cuentas de prueba.</li>
+                    <li>No uses la cuenta Vendedor como pagador y no mezcles cuentas reales con cuentas de prueba.</li>
+                </ol>
+
+                <h4>Checklist para probar una suscripción</h4>
+                <div class="ms-guide-table-wrap">
+                    <table class="widefat striped ms-guide-table">
+                        <thead>
+                            <tr>
+                                <th>Dato</th>
+                                <th>Qué utilizar</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Access Token</td>
+                                <td>El de <strong>Credenciales de prueba</strong> de la aplicación.</td>
+                            </tr>
+                            <tr>
+                                <td>Email del formulario</td>
+                                <td>El usuario/email asociado a la cuenta de prueba <strong>Comprador</strong>.</td>
+                            </tr>
+                            <tr>
+                                <td>Inicio de sesión en Checkout</td>
+                                <td>Usuario y contraseña generados para el Comprador.</td>
+                            </tr>
+                            <tr>
+                                <td>Verificación</td>
+                                <td>Código de 6 dígitos de la misma cuenta de prueba.</td>
+                            </tr>
+                            <tr>
+                                <td>País</td>
+                                <td>Comprador y Vendedor deben ser del mismo país.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h4>Retornos después del checkout</h4>
+                <p class="ms-guide-intro">
+                    El plugin recibe primero la respuesta de Mercado Pago, consulta el estado real y vuelve al formulario mostrando
+                    si la operación fue aprobada, quedó pendiente o fue rechazada.
+                </p>
+
+                <div class="ms-guide-tip">
+                    <strong>No necesitas crear <code>/gracias</code>.</strong>
+                    Deja desactivado <em>Usar páginas personalizadas de resultado</em>.
+                    Las tres URLs de resultado sólo se utilizan si quieres reemplazar los mensajes del plugin por páginas propias que ya existan.
+                </div>
+
+                <h4>Desarrollo local con ngrok</h4>
+                <p class="ms-guide-intro">Para este proyecto, inicia el túnel con:</p>
+                <p><code>ngrok http 10005 --host-header=sandbox-modulo-sanitario.local</code></p>
+                <p class="ms-guide-intro">
+                    Si cambia el dominio gratuito de ngrok, actualiza la URL del webhook en este panel y en Mercado Pago Developers.
+                    Puedes inspeccionar las llamadas en <code>http://localhost:4040</code>.
+                </p>
+
+                <p>
+                    <a href="https://www.mercadopago.com.ar/developers/es/docs/checkout-pro/additional-content/your-integrations/notifications/webhooks" target="_blank" rel="noopener noreferrer">
+                        Ver documentación oficial de Webhooks de Mercado Pago
+                    </a>
+                </p>
+            </div>
+        </details>
+        <?php
+    }
+
     private static function render_styles() {
         ?>
         <style>
@@ -917,6 +1458,49 @@ class MS_Donaciones_Admin {
             .ms-donaciones-admin input.regular-text {
                 max-width: 720px;
                 width: 100%;
+            }
+            .ms-donaciones-admin .ms-section-reminder {
+                margin: 16px 0 4px;
+                max-width: 860px;
+            }
+            .ms-donaciones-admin .ms-section-reminder p {
+                font-size: 13px;
+                margin: 10px 12px;
+            }
+            .ms-donaciones-admin .ms-section-reminder a {
+                font-weight: 600;
+            }
+            .ms-donaciones-admin #ms-salesforce-custom-fields-guide,
+            .ms-donaciones-admin #ms-crm-connection-test,
+            .ms-donaciones-admin #ms-mercadopago-setup-guide,
+            .ms-donaciones-admin #ms-mercadopago-connection-test {
+                scroll-margin-top: 40px;
+            }
+            .ms-donaciones-admin .ms-field-group-row th {
+                padding: 24px 0 6px;
+            }
+            .ms-donaciones-admin .ms-field-group {
+                align-items: flex-start;
+                background: #f6f7f7;
+                border: 1px solid #dcdcde;
+                border-left: 4px solid #2271b1;
+                border-radius: 6px;
+                display: flex;
+                gap: 12px;
+                max-width: 900px;
+                padding: 13px 15px;
+            }
+            .ms-donaciones-admin .ms-field-group .dashicons {
+                color: #2271b1;
+                margin-top: 2px;
+            }
+            .ms-donaciones-admin .ms-field-group h3 {
+                margin: 0 0 4px;
+            }
+            .ms-donaciones-admin .ms-field-group p {
+                color: #50575e;
+                margin: 0;
+                max-width: 760px;
             }
             .ms-donaciones-admin .ms-inline-selector {
                 align-items: center;
@@ -969,6 +1553,45 @@ class MS_Donaciones_Admin {
                 color: #b32d2e;
                 font-weight: 700;
             }
+            .ms-donaciones-admin .ms-connection-checks {
+                display: grid;
+                gap: 5px;
+                list-style: none;
+                margin: 10px 0 0;
+                max-width: 720px;
+                padding: 0;
+            }
+            .ms-donaciones-admin .ms-connection-checks[hidden] {
+                display: none;
+            }
+            .ms-donaciones-admin .ms-connection-checks li {
+                margin: 0;
+                padding-left: 22px;
+                position: relative;
+            }
+            .ms-donaciones-admin .ms-connection-checks li::before {
+                font-weight: 700;
+                left: 0;
+                position: absolute;
+            }
+            .ms-donaciones-admin .ms-connection-checks .is-ok {
+                color: #008a20;
+            }
+            .ms-donaciones-admin .ms-connection-checks .is-ok::before {
+                content: "✓";
+            }
+            .ms-donaciones-admin .ms-connection-checks .is-warning {
+                color: #996800;
+            }
+            .ms-donaciones-admin .ms-connection-checks .is-warning::before {
+                content: "!";
+            }
+            .ms-donaciones-admin .ms-connection-checks .is-error {
+                color: #b32d2e;
+            }
+            .ms-donaciones-admin .ms-connection-checks .is-error::before {
+                content: "×";
+            }
             .ms-donaciones-admin .ms-help-box {
                 background: #f6f7f7;
                 border-left: 4px solid #2271b1;
@@ -984,6 +1607,70 @@ class MS_Donaciones_Admin {
             }
             .ms-donaciones-admin .ms-help-box li {
                 margin-bottom: 4px;
+            }
+            .ms-donaciones-admin .ms-setup-guide {
+                background: #f0f6fc;
+                border: 1px solid #c3d9ed;
+                border-radius: 8px;
+                margin-top: 18px;
+                max-width: 900px;
+                overflow: hidden;
+            }
+            .ms-donaciones-admin .ms-setup-guide summary {
+                align-items: center;
+                cursor: pointer;
+                display: flex;
+                padding: 15px 18px;
+            }
+            .ms-donaciones-admin .ms-setup-guide summary:hover {
+                background: #e8f2fb;
+            }
+            .ms-donaciones-admin .ms-setup-guide summary span {
+                display: flex;
+                flex-direction: column;
+                gap: 3px;
+            }
+            .ms-donaciones-admin .ms-setup-guide summary strong {
+                color: #135e96;
+                font-size: 14px;
+            }
+            .ms-donaciones-admin .ms-setup-guide summary small {
+                color: #50575e;
+                font-size: 12px;
+            }
+            .ms-donaciones-admin .ms-setup-guide-content {
+                border-top: 1px solid #c3d9ed;
+                padding: 16px 18px 18px;
+            }
+            .ms-donaciones-admin .ms-setup-guide-content > ol {
+                margin: 0 0 16px 20px;
+            }
+            .ms-donaciones-admin .ms-setup-guide-content > ol li {
+                margin-bottom: 6px;
+            }
+            .ms-donaciones-admin .ms-setup-guide-content h4 {
+                color: #135e96;
+                font-size: 14px;
+                margin: 20px 0 4px;
+            }
+            .ms-donaciones-admin .ms-guide-intro {
+                color: #50575e;
+                margin: 0 0 10px;
+            }
+            .ms-donaciones-admin .ms-guide-table-wrap {
+                overflow-x: auto;
+            }
+            .ms-donaciones-admin .ms-guide-table {
+                min-width: 900px;
+            }
+            .ms-donaciones-admin .ms-guide-table th {
+                font-weight: 700;
+            }
+            .ms-donaciones-admin .ms-guide-tip {
+                background: #fff;
+                border-left: 4px solid #dba617;
+                margin: 14px 0 0;
+                padding: 10px 12px;
             }
             .ms-donaciones-admin .ms-save-bar {
                 align-items: center;

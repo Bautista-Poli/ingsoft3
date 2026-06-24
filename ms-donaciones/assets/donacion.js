@@ -86,19 +86,17 @@ h1 em { font-style: normal; background: linear-gradient(180deg, transparent 60%,
 
 @media(max-width:1040px){
 
-.step1-grid{grid-template-columns:1fr;}
+.step1-grid{display:flex;flex-direction:column;}
 
-.hero{position:static;}
+.form-card{order:1;width:100%;}
+
+.hero{position:static;order:2;width:100%;}
+
+.hero-photo{aspect-ratio:16/9;max-height:360px;}
 
 }
 
 @media(max-width:900px){
-
-.step1-grid{display:flex;flex-direction:column;}
-
-.form-card{order:1;}
-
-.hero{order:2;}
 
 .hero-photo{aspect-ratio:16/9;max-height:300px;}
 
@@ -140,6 +138,13 @@ h1 em { font-style: normal; background: linear-gradient(180deg, transparent 60%,
 .saved-banner { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #edf7f2; border: 1px solid #c3e6d4; border-radius: var(--radius); margin-bottom: 18px; color: var(--ink); }
 .saved-banner svg { color: var(--success); flex-shrink: 0; }
 .saved-banner p { margin: 0; font-size: 13px; line-height: 1.4; }
+.result-notice { align-items: flex-start; border: 1px solid; border-radius: var(--radius); display: flex; gap: 12px; margin: 0 auto 22px; max-width: 760px; padding: 15px 16px; }
+.result-notice svg { flex-shrink: 0; margin-top: 1px; }
+.result-notice strong { display: block; font-size: 14px; margin-bottom: 2px; }
+.result-notice p { font-size: 13px; line-height: 1.45; margin: 0; }
+.result-notice.success { background: #edf7f2; border-color: #b9dfcc; color: #16633f; }
+.result-notice.pending { background: #fff8e5; border-color: #efd58a; color: #755500; }
+.result-notice.error { background: #fdf0ee; border-color: #f2c2bc; color: #9b3025; }
 .fields { display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px; }
 .field-row { display: grid; gap: 12px; }
 .field-row.two { grid-template-columns: 1fr 1fr; }
@@ -297,6 +302,7 @@ const Ic = {
   Lock:   (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>,
   Shield: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11z"/><path d="m9 12 2 2 4-4"/></svg>,
   Check:  (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="m5 12 5 5L20 7"/></svg>,
+  Info:   (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>,
   Arrow:  (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>,
   Back:   (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M19 12H5"/><path d="m11 19-7-7 7-7"/></svg>,
   Heart:  (p) => <svg viewBox="0 0 24 24" fill="currentColor" {...p}><path d="M12 21s-7.5-4.7-9.5-9.3C1 7.8 3.6 4 7.4 4c2 0 3.5 1.1 4.6 2.7C13.1 5.1 14.6 4 16.6 4 20.4 4 23 7.8 21.5 11.7 19.5 16.3 12 21 12 21z"/></svg>,
@@ -660,7 +666,11 @@ function Step3({ data, amount, frequency, method, onBack, onRestart, guardarEnFo
         window.location.href = res.init_point;
       } else {
         console.error("MS Donaciones MP error:", res);
-        setError(cfg("step3_error_text", "No pudimos conectar con Mercado Pago. Intentá de nuevo."));
+        setError(
+          res.error
+          || res.detalle?.message
+          || cfg("step3_error_text", "No pudimos conectar con Mercado Pago. Intentá de nuevo.")
+        );
         setLoading(false);
       }
     })
@@ -768,6 +778,55 @@ function Footer() {
   );
 }
 
+function ResultNotice({ state }) {
+  const messages = {
+    approved: {
+      tone: "success",
+      title: "¡Muchas gracias por tu aporte!",
+      text: "Tu donación fue confirmada. Cada ayuda es indispensable para que más familias puedan acceder a un baño digno. Si podés, compartí esta iniciativa con amigos y familiares: difundir también transforma.",
+    },
+    subscription_authorized: {
+      tone: "success",
+      title: "¡Gracias por acompañarnos todos los meses!",
+      text: "Tu donación mensual quedó autorizada. Este compromiso sostenido nos ayuda a planificar y llegar a más familias. Compartir la iniciativa con amigos y familiares multiplica todavía más tu impacto.",
+    },
+    pending: {
+      tone: "pending",
+      title: "Tu pago está pendiente.",
+      text: "Mercado Pago todavía está procesando la operación. La confirmación llegará automáticamente.",
+    },
+    rejected: {
+      tone: "error",
+      title: "El pago no pudo completarse.",
+      text: "Podés volver a intentarlo con otro medio de pago.",
+    },
+    subscription_error: {
+      tone: "error",
+      title: "No pudimos confirmar la suscripción.",
+      text: "Volvé a intentar la donación mensual o elegí una donación puntual.",
+    },
+    error: {
+      tone: "error",
+      title: "No pudimos verificar el resultado.",
+      text: "Si realizaste el pago, aguardá la confirmación automática de Mercado Pago.",
+    },
+  };
+  const message = messages[state];
+  if (!message) return null;
+
+  return (
+    <div className={"result-notice " + message.tone} role="status">
+      {message.tone === "success"
+        ? <Ic.Check width="20" height="20"/>
+        : <Ic.Info width="20" height="20"/>}
+      <div>
+        <strong>{message.title}</strong>
+        <p>{message.text}</p>
+      </div>
+    </div>
+  );
+}
+
 /* ── APP ── */
 function App() {
   const [step, setStep]           = useState(1);
@@ -777,6 +836,7 @@ function App() {
   const [method, setMethod]       = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [savedForLater, setSavedForLater] = useState(false);
+  const resultState = new URLSearchParams(window.location.search).get("donacion_estado");
 
   const goStep = (s) => { setStep(s); window.scrollTo({ top:0, behavior:"smooth" }); };
 
@@ -816,6 +876,7 @@ function App() {
     <div>
       <TopBar step={step}/>
       <div className="content">
+        <ResultNotice state={resultState}/>
         {step===1 && <Step1 data={data} setData={setData} onNext={async()=>{
           const result = await guardarEnFormidable(data, { crm_event: "step_1_completed" });
           if (result?.crm_result?.success === false) {

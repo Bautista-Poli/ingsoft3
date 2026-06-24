@@ -77,13 +77,18 @@ class MS_Donaciones_REST {
 
         $external_reference = 'donacion-' . time() . '-' . wp_generate_password(6, false, false);
 
-        // On success, send the donor back through our own return endpoint so we can create the Opportunity
-        // the moment they come back, without depending on the (sometimes-delayed) webhook. It then redirects
-        // to the configured thank-you page. Falls back to the plain success URL if no public host is set.
-        $success_back = self::build_public_rest_url($settings, 'retorno-pago');
-        if (!$success_back) {
-            $success_back = esc_url_raw($settings['mp_success_url'] ?? '');
-        }
+        // Every Checkout Pro outcome returns through the plugin, so no /gracias
+        // page is required and the payment status can be verified server-side.
+        $return_base = self::build_public_rest_url($settings, 'retorno-pago');
+        $success_back = $return_base
+            ? add_query_arg('resultado', 'success', $return_base)
+            : self::configured_or_home_url($settings, 'approved');
+        $failure_back = $return_base
+            ? add_query_arg('resultado', 'failure', $return_base)
+            : self::configured_or_home_url($settings, 'rejected');
+        $pending_back = $return_base
+            ? add_query_arg('resultado', 'pending', $return_base)
+            : self::configured_or_home_url($settings, 'pending');
 
         $body = [
             'items' => [
@@ -105,8 +110,8 @@ class MS_Donaciones_REST {
             ],
             'back_urls' => [
                 'success' => $success_back,
-                'failure' => esc_url_raw($settings['mp_failure_url'] ?? ''),
-                'pending' => esc_url_raw($settings['mp_pending_url'] ?? ''),
+                'failure' => $failure_back,
+                'pending' => $pending_back,
             ],
             'auto_return'          => 'approved',
             'statement_descriptor' => sanitize_text_field($settings['mp_statement_descriptor'] ?? 'MODULO SANITARIO'),
@@ -255,17 +260,16 @@ class MS_Donaciones_REST {
                 'telefono' => '',
                 'monto'    => $monto,
                 'tipo'     => 'mensual',
+                'external_reference' => $external_reference,
             ];
             set_transient('ms_don_mp_' . $external_reference, $donor_data, 12 * HOUR_IN_SECONDS);
 
             $preapproval_id = sanitize_text_field($data['id'] ?? '');
             if ($preapproval_id) {
-                // Persist donor data keyed by preapproval_id so the recurring monthly charges (which
-                // carry no donor PII) can still link to the right Salesforce Contact. And flag the first
-                // charge to be skipped: the authorization event already creates the month-0 Opportunity,
-                // so counting the first charge too would duplicate it.
+                $donor_data['preapproval_id'] = $preapproval_id;
+                // Persist donor data keyed by preapproval_id so recurring charges, which may not
+                // include donor PII, can still be linked to the correct Salesforce Contact.
                 update_option('ms_don_sub_donor_' . $preapproval_id, $donor_data, false);
-                update_option('ms_don_sub_skipfirst_' . $preapproval_id, '1', false);
             }
 
             return new WP_REST_Response([
@@ -278,9 +282,14 @@ class MS_Donaciones_REST {
 
         error_log('MS Donaciones - Error creando suscripción MP HTTP ' . $http_code . ': ' . substr(wp_remote_retrieve_body($response), 0, 1000));
 
+        $api_error = sanitize_text_field($data['message'] ?? '');
+        if (stripos($api_error, 'Both payer and collector must be real or test users') !== false) {
+            $api_error = 'Para probar una suscripción, el email del formulario debe ser exactamente el de un usuario comprador de prueba de Mercado Pago, distinto del usuario vendedor. No mezcles usuarios reales y de prueba.';
+        }
+
         return new WP_REST_Response([
             'success'   => false,
-            'error'     => 'Error creando suscripción.',
+            'error'     => $api_error ?: 'Error creando suscripción.',
             'detalle'   => $data,
             'http_code' => $http_code,
         ], 500);
@@ -307,10 +316,17 @@ class MS_Donaciones_REST {
                 $payment            = json_decode(wp_remote_retrieve_body($response), true);
                 $status             = $payment['status'] ?? 'unknown';
                 $external_reference = sanitize_text_field($payment['external_reference'] ?? '');
+                $operation_type     = sanitize_text_field($payment['operation_type'] ?? '');
+                $is_recurring       = $operation_type === 'recurring_payment'
+                    || !empty($payment['metadata']['preapproval_id']);
 
                 error_log('MS Donaciones - MP Webhook payment ' . $id . ' status: ' . $status);
 
-                if ($status === 'approved' && $external_reference) {
+                // Recurring charges are handled by subscription_authorized_payment, which
+                // provides the Preapproval ID and avoids recording the same charge twice.
+                if ($is_recurring) {
+                    error_log('MS Donaciones - Recurring payment event ' . $id . ' deferred to subscription_authorized_payment.');
+                } elseif ($status === 'approved' && $external_reference) {
                     self::handle_approved_payment($settings, $payment, $external_reference);
                 }
             }
@@ -332,6 +348,8 @@ class MS_Donaciones_REST {
 
                 if ($status === 'authorized' && $external_reference) {
                     self::handle_authorized_subscription($settings, $preapproval, $external_reference);
+                } else {
+                    self::handle_subscription_status_update($settings, $preapproval, $external_reference);
                 }
             }
         }
@@ -396,19 +414,33 @@ class MS_Donaciones_REST {
         $auth = self::get_sf_auth($settings);
         if (!$auth) {
             error_log('MS Donaciones - SF auth failed for payment ' . $payment_id);
+            delete_option($lock_option);
             return;
         }
 
         $contact_result = self::sf_upsert_contact($auth, $settings, $donor_data);
         if (!($contact_result['success'] ?? false)) {
             error_log('MS Donaciones - SF Contact upsert failed for payment ' . $payment_id . ': ' . ($contact_result['sf_error'] ?? $contact_result['message'] ?? ''));
+            delete_option($lock_option);
             return;
         }
 
         $contact_id = $contact_result['contact_id'];
         $account_id = $contact_id ? self::sf_get_account_id($auth, $contact_id) : null;
 
-        self::sf_create_opportunity($auth, $settings, $payment, $donor_data, $contact_id, $account_id, $amount, 'unico');
+        $opportunity_created = self::sf_create_opportunity(
+            $auth,
+            $settings,
+            $payment,
+            $donor_data,
+            $contact_id,
+            $account_id,
+            $amount,
+            'unico'
+        );
+        if (!$opportunity_created) {
+            delete_option($lock_option);
+        }
     }
 
     private static function handle_authorized_subscription($settings, $preapproval, $external_reference) {
@@ -441,6 +473,8 @@ class MS_Donaciones_REST {
 
         // Make sure the donor mapping exists for future recurring charges (the charge events carry no PII).
         if ($preapproval_id) {
+            $donor_data['preapproval_id'] = $preapproval_id;
+            $donor_data['external_reference'] = $external_reference;
             update_option('ms_don_sub_donor_' . $preapproval_id, $donor_data, false);
         }
 
@@ -451,27 +485,32 @@ class MS_Donaciones_REST {
         $auth = self::get_sf_auth($settings);
         if (!$auth) {
             error_log('MS Donaciones - SF auth failed for subscription ' . $preapproval_id);
+            delete_option($lock_option);
             return;
         }
 
         $contact_result = self::sf_upsert_contact($auth, $settings, $donor_data);
         if (!($contact_result['success'] ?? false)) {
             error_log('MS Donaciones - SF Contact upsert failed for subscription ' . $preapproval_id);
+            delete_option($lock_option);
             return;
         }
 
-        $contact_id = $contact_result['contact_id'];
-        $account_id = $contact_id ? self::sf_get_account_id($auth, $contact_id) : null;
+        self::sf_update_contact_subscription_fields(
+            $auth,
+            $settings,
+            $contact_result['contact_id'] ?? '',
+            $preapproval
+        );
 
-        // Build a fake payment-shaped array so sf_create_opportunity can reuse the same logic
-        $payment_stub = [
-            'id'                 => $preapproval_id,
-            'external_reference' => $external_reference,
-            'transaction_amount' => $amount,
-            'status'             => 'authorized',
-        ];
-
-        self::sf_create_opportunity($auth, $settings, $payment_stub, $donor_data, $contact_id, $account_id, $amount, 'mensual');
+        // Authorization only confirms the subscription. It is not treated as money collected,
+        // so no Opportunity is created here. Each processed authorized-payment callback creates
+        // the corresponding recurring-payment Opportunity with its real payment ID.
+        error_log(
+            'MS Donaciones - SF Contact linked to authorized subscription '
+            . $preapproval_id
+            . '; waiting for authorized payment callback.'
+        );
     }
 
     private static function handle_subscription_payment($settings, $auth_payment, $preapproval_id) {
@@ -492,12 +531,11 @@ class MS_Donaciones_REST {
 
         error_log('MS Donaciones - Subscription payment ' . $payment_id . ' processed. Preapproval: ' . $preapproval_id . ' Amount: ' . $amount);
 
-        // Month 0: the authorization event (subscription_preapproval) already created the Opportunity.
-        // Skip the first charge so it isn't counted twice. Subsequent monthly charges create one each.
+        // Versions prior to 1.0.1 used this flag to skip the first charge because an Opportunity
+        // was created at subscription authorization time. Authorization is no longer counted as
+        // collected money, so remove a stale flag without skipping the real payment.
         if (get_option('ms_don_sub_skipfirst_' . $preapproval_id)) {
             delete_option('ms_don_sub_skipfirst_' . $preapproval_id);
-            error_log('MS Donaciones - First charge of subscription ' . $preapproval_id . ' skipped (already counted by the authorization).');
-            return;
         }
 
         if (($settings['sf_enabled'] ?? '0') !== '1') {
@@ -507,10 +545,11 @@ class MS_Donaciones_REST {
         $auth = self::get_sf_auth($settings);
         if (!$auth) {
             error_log('MS Donaciones - SF auth failed for subscription payment ' . $payment_id);
+            delete_option($lock_option);
             return;
         }
 
-        // Recurring charge (month 2+): the charge event carries no donor PII, so recover the donor from
+        // Recurring charge, including the first one: the event may carry no donor PII, so recover it from
         // the mapping stored at subscription creation/authorization to link the right Salesforce Contact.
         $donor_data = get_option('ms_don_sub_donor_' . $preapproval_id);
         if (!is_array($donor_data) || empty($donor_data['email'])) {
@@ -524,25 +563,49 @@ class MS_Donaciones_REST {
         }
         $donor_data['monto'] = $amount;
 
-        $payment_stub = [
-            'id'                 => $payment_id,
-            'external_reference' => 'suscripcion-cobro-' . $preapproval_id,
-            'transaction_amount' => $amount,
-            'status'             => 'processed',
-        ];
+        $auth_payment['id'] = $payment_id;
+        $auth_payment['preapproval_id'] = $preapproval_id;
+        if (empty($auth_payment['external_reference'])) {
+            $auth_payment['external_reference'] = sanitize_text_field(
+                $donor_data['external_reference'] ?? ('suscripcion-cobro-' . $preapproval_id)
+            );
+        }
 
         $contact_result = self::sf_upsert_contact($auth, $settings, $donor_data);
-        $contact_id = ($contact_result['success'] ?? false) ? ($contact_result['contact_id'] ?? null) : null;
+        if (!($contact_result['success'] ?? false)) {
+            error_log(
+                'MS Donaciones - SF Contact upsert failed for recurring payment '
+                . $payment_id
+                . ': '
+                . ($contact_result['sf_error'] ?? $contact_result['message'] ?? '')
+            );
+            delete_option($lock_option);
+            return;
+        }
+
+        $contact_id = $contact_result['contact_id'] ?? null;
         $account_id = $contact_id ? self::sf_get_account_id($auth, $contact_id) : null;
 
-        self::sf_create_opportunity($auth, $settings, $payment_stub, $donor_data, $contact_id, $account_id, $amount, 'mensual');
+        $opportunity_created = self::sf_create_opportunity(
+            $auth,
+            $settings,
+            $auth_payment,
+            $donor_data,
+            $contact_id,
+            $account_id,
+            $amount,
+            'recurrente'
+        );
+        if (!$opportunity_created) {
+            delete_option($lock_option);
+        }
     }
 
     /**
      * Donor returns here from the Mercado Pago subscription checkout (back_url).
-     * Verifies the preapproval status and processes it immediately, so the Salesforce
-     * Opportunity is created without waiting for the webhook. Idempotent: if the webhook
-     * also fires, the lock in handle_authorized_subscription prevents a duplicate.
+     * Verifies the preapproval status and links the subscription to the Salesforce Contact.
+     * The Opportunity is created only when Mercado Pago confirms a processed charge through
+     * subscription_authorized_payment. Idempotency prevents duplicate subscription handling.
      */
     public static function retorno_suscripcion($request) {
         $preapproval_id = sanitize_text_field($request->get_param('preapproval_id') ?? '');
@@ -551,7 +614,7 @@ class MS_Donaciones_REST {
             get_option('ms_donaciones_labels', [])
         );
         $access_token = sanitize_text_field($settings['mp_access_token'] ?? '');
-        $success_url  = esc_url_raw($settings['mp_success_url'] ?? '') ?: home_url('/');
+        $result_state = 'subscription_error';
 
         if ($preapproval_id && $access_token) {
             $response = wp_remote_get('https://api.mercadopago.com/preapproval/' . rawurlencode($preapproval_id), [
@@ -568,14 +631,16 @@ class MS_Donaciones_REST {
 
                 if ($status === 'authorized' && $external_reference) {
                     self::handle_authorized_subscription($settings, $preapproval, $external_reference);
+                    $result_state = 'subscription_authorized';
                 }
             }
         }
 
-        // Use wp_redirect (not wp_safe_redirect): the success URL is an admin-configured external
-        // domain (e.g. the org's thank-you page), which wp_safe_redirect would reject and bounce
-        // back to the local site. The URL is trusted config, not user input, so this is safe.
-        wp_redirect($success_url);
+        wp_redirect(self::result_redirect_url(
+            $settings,
+            $result_state,
+            ['preapproval_id' => $preapproval_id]
+        ));
         exit;
     }
 
@@ -595,8 +660,13 @@ class MS_Donaciones_REST {
             MS_Donaciones_Shortcodes::default_labels(),
             get_option('ms_donaciones_labels', [])
         );
-        $access_token = sanitize_text_field($settings['mp_access_token'] ?? '');
-        $success_url  = esc_url_raw($settings['mp_success_url'] ?? '') ?: home_url('/');
+        $access_token     = sanitize_text_field($settings['mp_access_token'] ?? '');
+        $requested_result = sanitize_key($request->get_param('resultado') ?? '');
+        $result_state     = match ($requested_result) {
+            'failure' => 'rejected',
+            'pending' => 'pending',
+            default   => 'error',
+        };
 
         if ($payment_id && $access_token) {
             $response = wp_remote_get('https://api.mercadopago.com/v1/payments/' . rawurlencode($payment_id), [
@@ -614,11 +684,193 @@ class MS_Donaciones_REST {
                 if ($status === 'approved' && $external_reference) {
                     self::handle_approved_payment($settings, $payment, $external_reference);
                 }
+
+                $result_state = match ($status) {
+                    'approved' => 'approved',
+                    'pending', 'in_process', 'in_mediation' => 'pending',
+                    'rejected', 'cancelled', 'refunded', 'charged_back' => 'rejected',
+                    default => $result_state,
+                };
             }
         }
 
-        wp_redirect($success_url);
+        wp_redirect(self::result_redirect_url(
+            $settings,
+            $result_state,
+            ['payment_id' => $payment_id]
+        ));
         exit;
+    }
+
+    private static function configured_or_home_url($settings, $result_state) {
+        $custom_urls_enabled = ($settings['mp_use_custom_result_urls'] ?? '0') === '1';
+        $setting_key = match ($result_state) {
+            'approved', 'subscription_authorized' => 'mp_success_url',
+            'pending' => 'mp_pending_url',
+            default => 'mp_failure_url',
+        };
+        $configured = $custom_urls_enabled
+            ? esc_url_raw($settings[$setting_key] ?? '')
+            : '';
+
+        return $configured ?: home_url('/');
+    }
+
+    private static function result_redirect_url($settings, $result_state, $extra = []) {
+        $destination = self::configured_or_home_url($settings, $result_state);
+
+        if (($settings['mp_use_custom_result_urls'] ?? '0') === '1') {
+            return $destination;
+        }
+
+        return add_query_arg(
+            array_filter(
+                array_merge(
+                    ['donacion_estado' => $result_state],
+                    $extra
+                ),
+                static fn($value) => $value !== '' && $value !== null
+            ),
+            $destination
+        );
+    }
+
+    private static function handle_subscription_status_update($settings, $preapproval, $external_reference) {
+        $preapproval_id = sanitize_text_field((string) ($preapproval['id'] ?? ''));
+        $status = sanitize_text_field((string) ($preapproval['status'] ?? 'unknown'));
+
+        if (!$preapproval_id) {
+            return;
+        }
+
+        $donor_data = get_option('ms_don_sub_donor_' . $preapproval_id);
+        if (!is_array($donor_data)) {
+            $donor_data = get_transient('ms_don_mp_' . $external_reference);
+        }
+        if (!is_array($donor_data)) {
+            $donor_data = [
+                'nombre'   => sanitize_text_field($preapproval['payer_first_name'] ?? ''),
+                'apellido' => sanitize_text_field($preapproval['payer_last_name'] ?? ''),
+                'email'    => sanitize_email($preapproval['payer_email'] ?? ''),
+                'dni'      => '',
+                'telefono' => '',
+            ];
+        }
+
+        $donor_data['preapproval_id'] = $preapproval_id;
+        $donor_data['external_reference'] = $external_reference;
+        update_option('ms_don_sub_donor_' . $preapproval_id, $donor_data, false);
+
+        if (($settings['sf_enabled'] ?? '0') !== '1') {
+            error_log('MS Donaciones - Subscription ' . $preapproval_id . ' status changed to ' . $status . '; Salesforce disabled.');
+            return;
+        }
+
+        $auth = self::get_sf_auth($settings);
+        if (!$auth) {
+            error_log('MS Donaciones - SF auth failed updating subscription status ' . $preapproval_id);
+            return;
+        }
+
+        $contact_result = self::sf_upsert_contact($auth, $settings, $donor_data);
+        if (!($contact_result['success'] ?? false)) {
+            error_log(
+                'MS Donaciones - SF Contact update failed for subscription status '
+                . $preapproval_id
+                . ': '
+                . ($contact_result['sf_error'] ?? $contact_result['message'] ?? '')
+            );
+            return;
+        }
+
+        self::sf_update_contact_subscription_fields(
+            $auth,
+            $settings,
+            $contact_result['contact_id'] ?? '',
+            $preapproval
+        );
+    }
+
+    private static function sf_update_contact_subscription_fields($auth, $settings, $contact_id, $preapproval) {
+        if (!$contact_id) {
+            return false;
+        }
+
+        $preapproval_id = sanitize_text_field((string) ($preapproval['id'] ?? ''));
+        $status = sanitize_text_field((string) ($preapproval['status'] ?? 'unknown'));
+        $fields = [];
+        $field_values = [
+            'sf_contact_field_subscription_id' => $preapproval_id,
+            'sf_contact_field_subscription_status' => $status,
+        ];
+
+        if (in_array($status, ['cancelled', 'canceled'], true)) {
+            $cancelled_at = sanitize_text_field((string) (
+                $preapproval['date_modified']
+                ?? $preapproval['last_modified']
+                ?? ''
+            ));
+            $field_values['sf_contact_field_subscription_cancelled_at'] = $cancelled_at ?: gmdate('c');
+        }
+
+        foreach ($field_values as $setting_key => $value) {
+            $field_name = sanitize_text_field($settings[$setting_key] ?? '');
+            if ($field_name && $value !== '' && self::sf_valid_field_name($field_name)) {
+                $fields[$field_name] = $value;
+            }
+        }
+
+        if (!$fields) {
+            error_log(
+                'MS Donaciones - Subscription '
+                . $preapproval_id
+                . ' status '
+                . $status
+                . ' received; no Contact subscription fields configured.'
+            );
+            return true;
+        }
+
+        $response = wp_remote_request(
+            $auth['instance_url'] . '/services/data/v59.0/sobjects/Contact/' . rawurlencode($contact_id),
+            [
+                'method'  => 'PATCH',
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $auth['token'],
+                    'Content-Type'  => 'application/json',
+                ],
+                'body'    => wp_json_encode($fields),
+                'timeout' => 12,
+            ]
+        );
+
+        $http_status = is_wp_error($response) ? 0 : wp_remote_retrieve_response_code($response);
+        $success = $http_status >= 200 && $http_status < 300;
+
+        if ($success) {
+            error_log(
+                'MS Donaciones - SF Contact '
+                . $contact_id
+                . ' subscription '
+                . $preapproval_id
+                . ' updated to '
+                . $status
+            );
+        } else {
+            $error = is_wp_error($response)
+                ? $response->get_error_message()
+                : substr(wp_remote_retrieve_body($response), 0, 500);
+            error_log(
+                'MS Donaciones - SF subscription status update failed for '
+                . $preapproval_id
+                . ' HTTP '
+                . $http_status
+                . ': '
+                . $error
+            );
+        }
+
+        return $success;
     }
 
     /**
@@ -798,34 +1050,54 @@ class MS_Donaciones_REST {
             'Content-Type'  => 'application/json',
         ];
 
-        $dni_field = sanitize_text_field($settings['sf_field_dni'] ?? '');
-        $dni_value = $data['dni'] ?? '';
-        $contact_id = null;
+        $email       = strtolower(sanitize_email($data['email'] ?? ''));
+        $email_field = sanitize_text_field($settings['sf_field_email'] ?? 'Email') ?: 'Email';
+        $dni_field   = sanitize_text_field($settings['sf_field_dni'] ?? '');
+        $dni_value   = sanitize_text_field($data['dni'] ?? '');
+        $contact_id  = null;
+        $match_by    = null;
+        $lock_name   = null;
 
-        // Search by DNI first (configured custom field)
-        if ($dni_field && $dni_value) {
-            $soql       = 'SELECT Id FROM Contact WHERE ' . $dni_field . " = '" . self::sf_escape($dni_value) . "' LIMIT 1";
-            $query_resp = wp_remote_get($api_base . '/query/?q=' . rawurlencode($soql), [
-                'headers' => $headers,
-                'timeout' => 12,
-            ]);
-            if (!is_wp_error($query_resp) && wp_remote_retrieve_response_code($query_resp) < 300) {
-                $result     = json_decode(wp_remote_retrieve_body($query_resp), true);
-                $contact_id = $result['records'][0]['Id'] ?? null;
+        // Email is the canonical identity for this integration. Always search it first
+        // and fail closed if Salesforce cannot complete the lookup: creating a Contact
+        // after a failed query could duplicate an existing donor.
+        if ($email) {
+            $email_lookup = self::sf_find_contact($api_base, $headers, $email_field, $email);
+            if (!$email_lookup['success']) {
+                return [
+                    'enabled'  => true,
+                    'success'  => false,
+                    'message'  => 'No se pudo verificar si el Contact ya existe por email.',
+                    'sf_error' => $email_lookup['error'],
+                ];
             }
+            $contact_id = $email_lookup['contact_id'];
+            $match_by   = $contact_id ? 'email' : null;
         }
 
-        // Fallback: search by email
-        if (!$contact_id && !empty($data['email'])) {
-            $soql       = "SELECT Id FROM Contact WHERE Email = '" . self::sf_escape($data['email']) . "' LIMIT 1";
-            $query_resp = wp_remote_get($api_base . '/query/?q=' . rawurlencode($soql), [
-                'headers' => $headers,
-                'timeout' => 12,
-            ]);
-            if (!is_wp_error($query_resp) && wp_remote_retrieve_response_code($query_resp) < 300) {
-                $result     = json_decode(wp_remote_retrieve_body($query_resp), true);
-                $contact_id = $result['records'][0]['Id'] ?? null;
+        // DNI remains a secondary identifier. It can connect a changed/new email to
+        // an existing Contact, but it never takes precedence over an email match.
+        if (!$contact_id && $dni_field && $dni_value) {
+            if (!self::sf_valid_field_name($dni_field)) {
+                return [
+                    'enabled'  => true,
+                    'success'  => false,
+                    'message'  => 'El API Name configurado para DNI no es valido.',
+                    'sf_error' => 'Invalid Salesforce field name: ' . $dni_field,
+                ];
             }
+
+            $dni_lookup = self::sf_find_contact($api_base, $headers, $dni_field, $dni_value);
+            if (!$dni_lookup['success']) {
+                return [
+                    'enabled'  => true,
+                    'success'  => false,
+                    'message'  => 'No se pudo verificar si el Contact ya existe por DNI.',
+                    'sf_error' => $dni_lookup['error'],
+                ];
+            }
+            $contact_id = $dni_lookup['contact_id'];
+            $match_by   = $contact_id ? 'dni' : null;
         }
 
         $fields = self::build_sf_contact_fields($settings, $data);
@@ -837,6 +1109,39 @@ class MS_Donaciones_REST {
                 'message' => 'No hay campos de Contact configurados para enviar a Salesforce.',
             ];
         }
+
+        // Serialize Contact creation by normalized email and repeat the lookup after
+        // acquiring the lock. This closes the common race between the step-1 save,
+        // the return URL and the Mercado Pago webhook.
+        if (!$contact_id && $email) {
+            $lock_name = 'ms_don_sf_contact_lock_' . md5($email);
+            if (!self::sf_acquire_lock($lock_name)) {
+                return [
+                    'enabled'  => true,
+                    'success'  => false,
+                    'message'  => 'El Contact para este email se esta procesando. Reintenta en unos segundos.',
+                    'sf_error' => 'Concurrent Contact upsert blocked.',
+                ];
+            }
+
+            $email_lookup = self::sf_find_contact($api_base, $headers, $email_field, $email);
+            if (!$email_lookup['success']) {
+                self::sf_release_lock($lock_name);
+                return [
+                    'enabled'  => true,
+                    'success'  => false,
+                    'message'  => 'No se pudo volver a verificar el Contact por email.',
+                    'sf_error' => $email_lookup['error'],
+                ];
+            }
+
+            if ($email_lookup['contact_id']) {
+                $contact_id = $email_lookup['contact_id'];
+                $match_by   = 'email';
+            }
+        }
+
+        $contact_action = $contact_id ? 'updated' : 'created';
 
         if ($contact_id) {
             $response = wp_remote_request($api_base . '/sobjects/Contact/' . $contact_id, [
@@ -854,6 +1159,7 @@ class MS_Donaciones_REST {
         }
 
         if (is_wp_error($response)) {
+            self::sf_release_lock($lock_name);
             return ['enabled' => true, 'success' => false, 'message' => $response->get_error_message()];
         }
 
@@ -866,6 +1172,8 @@ class MS_Donaciones_REST {
             $contact_id = $result['id'] ?? null;
         }
 
+        self::sf_release_lock($lock_name);
+
         if (!$success) {
             error_log('MS Donaciones - SF Contact upsert HTTP ' . $http_status . ': ' . substr($body, 0, 500));
         }
@@ -874,9 +1182,82 @@ class MS_Donaciones_REST {
             'enabled'    => true,
             'success'    => $success,
             'contact_id' => $contact_id,
+            'action'     => $contact_action,
+            'matched_by' => $match_by,
             'message'    => $success ? 'Contact guardado en Salesforce.' : 'Error al guardar Contact en Salesforce.',
             'sf_error'   => $success ? null : self::extract_sf_error($body),
         ];
+    }
+
+    private static function sf_find_contact($api_base, $headers, $field, $value) {
+        if (!self::sf_valid_field_name($field)) {
+            return [
+                'success'    => false,
+                'contact_id' => null,
+                'error'      => 'Invalid Salesforce field name: ' . $field,
+            ];
+        }
+
+        $soql = 'SELECT Id FROM Contact WHERE '
+            . $field
+            . " = '"
+            . self::sf_escape($value)
+            . "' ORDER BY CreatedDate ASC LIMIT 1";
+
+        $response = wp_remote_get($api_base . '/query/?q=' . rawurlencode($soql), [
+            'headers' => $headers,
+            'timeout' => 12,
+        ]);
+
+        if (is_wp_error($response)) {
+            return [
+                'success'    => false,
+                'contact_id' => null,
+                'error'      => $response->get_error_message(),
+            ];
+        }
+
+        $status = wp_remote_retrieve_response_code($response);
+        $body   = wp_remote_retrieve_body($response);
+
+        if ($status < 200 || $status >= 300) {
+            return [
+                'success'    => false,
+                'contact_id' => null,
+                'error'      => self::extract_sf_error($body) ?: 'Salesforce query HTTP ' . $status,
+            ];
+        }
+
+        $result = json_decode($body, true);
+
+        return [
+            'success'    => true,
+            'contact_id' => $result['records'][0]['Id'] ?? null,
+            'error'      => null,
+        ];
+    }
+
+    private static function sf_valid_field_name($field) {
+        return (bool) preg_match('/^[A-Za-z][A-Za-z0-9_]*$/', (string) $field);
+    }
+
+    private static function sf_acquire_lock($lock_name) {
+        if (!$lock_name) {
+            return true;
+        }
+
+        $existing = (int) get_option($lock_name, 0);
+        if ($existing && $existing < (time() - 60)) {
+            delete_option($lock_name);
+        }
+
+        return add_option($lock_name, (string) time(), '', 'no');
+    }
+
+    private static function sf_release_lock($lock_name) {
+        if ($lock_name) {
+            delete_option($lock_name);
+        }
     }
 
     private static function build_sf_contact_fields($settings, $data) {
@@ -925,37 +1306,115 @@ class MS_Donaciones_REST {
             'Content-Type'  => 'application/json',
         ];
 
-        $es_mensual = ($tipo === 'mensual');
-        $stage      = sanitize_text_field($settings['sf_opp_stage'] ?? 'Closed Won');
-        $fullname   = trim(($donor_data['nombre'] ?? '') . ' ' . ($donor_data['apellido'] ?? ''));
-        $prefix     = $es_mensual ? 'Donacion MP Mensual - ' : 'Donacion MP Unica - ';
-        $opp_name   = substr($prefix . ($fullname ?: 'Donante'), 0, 120);
-        $payment_id = sanitize_text_field((string) ($payment['id'] ?? ''));
+        $is_recurring       = ($tipo === 'recurrente');
+        $payment_kind       = $is_recurring ? 'PAGO_RECURRENTE' : 'PAGO_PUNTUAL';
+        $payment_kind_name  = $is_recurring ? 'Pago recurrente MP' : 'Pago puntual MP';
+        $stage              = sanitize_text_field($settings['sf_opp_stage'] ?? 'Closed Won');
+        $fullname           = trim(($donor_data['nombre'] ?? '') . ' ' . ($donor_data['apellido'] ?? ''));
+        $authorized_payment_id = $is_recurring
+            ? sanitize_text_field((string) ($payment['id'] ?? ''))
+            : '';
+        $payment_id = sanitize_text_field((string) (
+            $payment['payment_id']
+            ?? $payment['id']
+            ?? ''
+        ));
+        $subscription_id    = sanitize_text_field((string) ($payment['preapproval_id'] ?? ''));
+        $external_reference = sanitize_text_field((string) ($payment['external_reference'] ?? ''));
+        $status             = sanitize_text_field((string) ($payment['status'] ?? ''));
+        $status_detail      = sanitize_text_field((string) ($payment['status_detail'] ?? ''));
+        $currency           = sanitize_text_field((string) ($payment['currency_id'] ?? 'ARS'));
+        $payment_method     = sanitize_text_field((string) (
+            $payment['payment_method_id']
+            ?? $payment['payment_method']['id']
+            ?? ''
+        ));
+        $payment_type = sanitize_text_field((string) (
+            $payment['payment_type_id']
+            ?? $payment['payment_method']['type']
+            ?? ''
+        ));
+        $installments = absint($payment['installments'] ?? 0);
+        $payment_date = sanitize_text_field((string) (
+            $payment['date_approved']
+            ?? $payment['payment_date']
+            ?? $payment['date_created']
+            ?? ''
+        ));
+        $close_date = self::sf_date_from_payment($payment_date);
+        $id_suffix  = $payment_id ? ' #' . $payment_id : '';
+        $opp_name   = substr(
+            $payment_kind_name . $id_suffix . ' - ' . ($fullname ?: 'Donante'),
+            0,
+            120
+        );
+
+        $description_lines = [
+            'Origen: Mercado Pago',
+            'Tipo: ' . $payment_kind,
+            'Payment ID: ' . ($payment_id ?: 'no informado'),
+        ];
+        if ($is_recurring) {
+            $description_lines[] = 'Preapproval / Subscription ID: ' . ($subscription_id ?: 'no informado');
+            if ($authorized_payment_id && $authorized_payment_id !== $payment_id) {
+                $description_lines[] = 'Authorized Payment ID: ' . $authorized_payment_id;
+            }
+        }
+        if ($external_reference) {
+            $description_lines[] = 'External reference: ' . $external_reference;
+        }
+        $description_lines[] = 'Estado: ' . ($status ?: 'no informado');
+        if ($status_detail) {
+            $description_lines[] = 'Detalle de estado: ' . $status_detail;
+        }
+        $description_lines[] = 'Importe: ' . number_format((float) $amount, 2, '.', '') . ' ' . $currency;
+        if ($payment_method) {
+            $description_lines[] = 'Medio de pago: ' . $payment_method;
+        }
+        if ($payment_type) {
+            $description_lines[] = 'Tipo de medio de pago: ' . $payment_type;
+        }
+        if ($installments) {
+            $description_lines[] = 'Cuotas: ' . $installments;
+        }
+        if ($payment_date) {
+            $description_lines[] = 'Fecha informada por Mercado Pago: ' . $payment_date;
+        }
 
         $opp_fields = [
-            'Name'      => $opp_name,
-            'Amount'    => $amount,
-            'CloseDate' => date('Y-m-d'),
-            'StageName' => $stage,
-            'Description' => 'Donacion ' . ($es_mensual ? 'mensual (suscripción)' : 'única') . ' via Mercado Pago. Payment ID: ' . $payment_id,
+            'Name'        => $opp_name,
+            'Amount'      => $amount,
+            'CloseDate'   => $close_date,
+            'StageName'   => $stage,
+            'Description' => implode("\n", $description_lines),
         ];
 
-        // Optional: map the donation type to a Salesforce Opportunity "Type" picklist value.
-        // Left empty by default so it never clashes with a restricted picklist; configure per-org if needed.
-        $opp_type = sanitize_text_field($settings[$es_mensual ? 'sf_opp_type_mensual' : 'sf_opp_type_unico'] ?? '');
+        $opp_type_key = $is_recurring ? 'sf_opp_type_recurrente' : 'sf_opp_type_unico';
+        $opp_type = sanitize_text_field(
+            $settings[$opp_type_key]
+            ?: ($is_recurring ? 'Donación recurrente' : 'Donación puntual')
+        );
         if ($opp_type) {
             $opp_fields['Type'] = $opp_type;
         }
-
-        if ($contact_id) {
-            $opp_fields['ContactId'] = $contact_id;
-        }
-
         if ($account_id) {
             $opp_fields['AccountId'] = $account_id;
         }
 
-        $response    = wp_remote_post($api_base . '/sobjects/Opportunity', [
+        $custom_field_map = [
+            'sf_opp_field_payment_id'         => $payment_id,
+            'sf_opp_field_subscription_id'    => $subscription_id,
+            'sf_opp_field_external_reference' => $external_reference,
+            'sf_opp_field_payment_kind'       => $payment_kind,
+        ];
+        foreach ($custom_field_map as $setting_key => $value) {
+            $field_name = sanitize_text_field($settings[$setting_key] ?? '');
+            if ($field_name && $value !== '' && self::sf_valid_field_name($field_name)) {
+                $opp_fields[$field_name] = $value;
+            }
+        }
+
+        $response = wp_remote_post($api_base . '/sobjects/Opportunity', [
             'headers' => $headers,
             'body'    => wp_json_encode($opp_fields),
             'timeout' => 15,
@@ -964,11 +1423,71 @@ class MS_Donaciones_REST {
         $success     = $http_status >= 200 && $http_status < 300;
 
         if ($success) {
-            error_log('MS Donaciones - SF Opportunity created for payment ' . $payment_id);
+            $result         = json_decode(wp_remote_retrieve_body($response), true);
+            $opportunity_id = sanitize_text_field((string) ($result['id'] ?? ''));
+            error_log(
+                'MS Donaciones - SF Opportunity '
+                . $opportunity_id
+                . ' created for '
+                . $payment_kind
+                . ' payment '
+                . $payment_id
+                . ($subscription_id ? ' subscription ' . $subscription_id : '')
+            );
+
+            // Opportunity has no standard ContactId field.
+            if ($opportunity_id && $contact_id) {
+                self::sf_create_opportunity_contact_role(
+                    $api_base,
+                    $headers,
+                    $opportunity_id,
+                    $contact_id
+                );
+            }
         } else {
             $err = is_wp_error($response) ? $response->get_error_message() : substr(wp_remote_retrieve_body($response), 0, 500);
             error_log('MS Donaciones - SF Opportunity failed for payment ' . $payment_id . ' HTTP ' . $http_status . ': ' . $err);
         }
+
+        return $success;
+    }
+
+    private static function sf_create_opportunity_contact_role($api_base, $headers, $opportunity_id, $contact_id) {
+        $response = wp_remote_post($api_base . '/sobjects/OpportunityContactRole', [
+            'headers' => $headers,
+            'body'    => wp_json_encode([
+                'OpportunityId' => $opportunity_id,
+                'ContactId'     => $contact_id,
+                'IsPrimary'     => true,
+            ]),
+            'timeout' => 12,
+        ]);
+
+        $status = is_wp_error($response) ? 0 : wp_remote_retrieve_response_code($response);
+        if ($status < 200 || $status >= 300) {
+            $error = is_wp_error($response)
+                ? $response->get_error_message()
+                : substr(wp_remote_retrieve_body($response), 0, 500);
+            error_log(
+                'MS Donaciones - SF OpportunityContactRole failed for Opportunity '
+                . $opportunity_id
+                . ' and Contact '
+                . $contact_id
+                . ': '
+                . $error
+            );
+        }
+    }
+
+    private static function sf_date_from_payment($payment_date) {
+        if ($payment_date) {
+            $timestamp = strtotime($payment_date);
+            if ($timestamp !== false) {
+                return gmdate('Y-m-d', $timestamp);
+            }
+        }
+
+        return current_time('Y-m-d');
     }
 
     private static function sf_escape($value) {
